@@ -22,7 +22,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "SafeStep shares your location with your emergency contacts when you fall or ask for help."
+        }
+      ]
     ]
   }
 }

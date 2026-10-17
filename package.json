@@ -9,6 +9,8 @@
     "expo": "~58.0.14",
     "expo-camera": "~58.0.10",
     "expo-linear-gradient": "~58.0.3",
+    "expo-location": "~58.0.17",
+    "expo-sms": "~58.0.2",
     "expo-status-bar": "~58.0.3",
     "lucide-react-native": "^1.58.0",
     "react": "19.3.0",
