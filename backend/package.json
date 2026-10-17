@@ -1,0 +1,28 @@
+{
+  "name": "safestep-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sends SafeStep emergency text alerts through Twilio. Runs on Node or Bun.",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "dev:bun": "bun --watch src/server.ts",
+    "start:bun": "bun src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
