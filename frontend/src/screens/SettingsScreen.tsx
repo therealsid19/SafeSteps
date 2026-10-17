@@ -1,15 +1,28 @@
-import React from "react";
+import React, { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useAuth } from "@clerk/expo";
 
-import { Button } from "../components/Form";
+import { Button, ErrorText } from "../components/Form";
 import { COLORS, RADIUS, SPACING } from "../constants/theme";
 import { useProfile } from "../context/ProfileContext";
+import { authClient } from "../lib/auth-client";
 import { API_URL } from "../lib/api";
 
 export default function SettingsScreen() {
-  const { signOut } = useAuth();
   const { profile } = useProfile();
+  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    setError(null);
+    try {
+      await authClient.signOut();
+    } catch (e) {
+      console.warn("Sign out failed", e);
+      setError(e instanceof Error ? e.message : String(e));
+      setSigningOut(false);
+    }
+  }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.container}>
@@ -25,7 +38,8 @@ export default function SettingsScreen() {
         Voice and accessibility preferences will appear here.
       </Text>
 
-      <Button title="Sign out" variant="danger" onPress={() => signOut()} />
+      <ErrorText>{error}</ErrorText>
+      <Button title="Sign out" variant="danger" onPress={handleSignOut} loading={signingOut} />
       <Text style={styles.server}>Server: {API_URL}</Text>
     </ScrollView>
   );

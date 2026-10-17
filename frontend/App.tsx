@@ -2,45 +2,30 @@ import React from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { ClerkProvider, useAuth } from "@clerk/expo";
-import { tokenCache } from "@clerk/expo/token-cache";
 
 import AppNavigator from "./src/navigation/AppNavigator";
 import SignInScreen from "./src/screens/SignInScreen";
 import RoleScreen from "./src/screens/RoleScreen";
 import { Button } from "./src/components/Form";
 import { ProfileProvider, useProfile } from "./src/context/ProfileContext";
+import { authClient } from "./src/lib/auth-client";
 import { COLORS } from "./src/constants/theme";
 
-const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
 export default function App() {
-  if (!publishableKey) {
-    return (
-      <Centered>
-        <Text style={styles.message}>
-          Add EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY to frontend/.env, then restart Expo.
-        </Text>
-      </Centered>
-    );
-  }
-
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <SafeAreaProvider>
-        <StatusBar style="light" />
-        <AuthGate />
-      </SafeAreaProvider>
-    </ClerkProvider>
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+      <AuthGate />
+    </SafeAreaProvider>
   );
 }
 
 /** Signed out -> sign-in screen. Signed in -> load the SafeStep profile. */
 function AuthGate() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { data: session, isPending } = authClient.useSession();
 
-  if (!isLoaded) return <Loading />;
-  if (!isSignedIn) {
+  if (isPending && !session) return <Loading />;
+  if (!session) {
     return (
       <SafeAreaView style={styles.safe}>
         <SignInScreen />
@@ -48,7 +33,7 @@ function AuthGate() {
     );
   }
   return (
-    <ProfileProvider>
+    <ProfileProvider key={session.user.id}>
       <ProfileGate />
     </ProfileProvider>
   );

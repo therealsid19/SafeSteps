@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { HeartHandshake, User as UserIcon } from "lucide-react-native";
-import { useAuth } from "@clerk/expo";
 
 import { Button, ErrorText, Field, LinkText } from "../components/Form";
 import { COLORS, RADIUS, SPACING } from "../constants/theme";
 import { useProfile } from "../context/ProfileContext";
+import { authClient } from "../lib/auth-client";
 import type { Role } from "../lib/api";
 
 const OPTIONS: { role: Role; title: string; description: string; icon: typeof UserIcon }[] = [
@@ -26,9 +26,10 @@ const OPTIONS: { role: Role; title: string; description: string; icon: typeof Us
 /** Shown once, right after the first sign-in. */
 export default function RoleScreen() {
   const { register } = useProfile();
-  const { signOut } = useAuth();
   const [role, setRole] = useState<Role | null>(null);
-  const [phone, setPhone] = useState("");
+  const { data: session } = authClient.useSession();
+  // Filled in from the Google account when Google shares it
+  const [phone, setPhone] = useState(session?.user.phoneNumber ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +43,16 @@ export default function RoleScreen() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleSignOut() {
+    setError(null);
+    try {
+      await authClient.signOut();
+    } catch (e) {
+      console.warn("Sign out failed", e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -73,7 +84,7 @@ export default function RoleScreen() {
       </View>
 
       <Field
-        label="Phone number (optional)"
+        label="Phone number"
         value={phone}
         onChangeText={setPhone}
         keyboardType="phone-pad"
@@ -81,8 +92,8 @@ export default function RoleScreen() {
         placeholder="416-555-0101"
       />
       <ErrorText>{error}</ErrorText>
-      <Button title="Continue" onPress={submit} loading={busy} disabled={!role} />
-      <LinkText onPress={() => signOut()}>Use a different account</LinkText>
+      <Button title="Continue" onPress={submit} loading={busy} disabled={!role || !phone.trim()} />
+      <LinkText onPress={handleSignOut}>Use a different account</LinkText>
     </ScrollView>
   );
 }

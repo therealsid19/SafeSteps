@@ -42,7 +42,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       await loadPartner();
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
-        setProfile(null); // signed in with Clerk but hasn't picked a role yet
+        setProfile(null); // signed in but hasn't picked a role yet
       } else {
         setError(e instanceof Error ? e.message : String(e));
       }
