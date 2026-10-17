@@ -1,4 +1,11 @@
-import { pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  doublePrecision,
+  boolean,
+} from "drizzle-orm/pg-core";
 
 import { user } from "./auth-schema";
 
@@ -27,3 +34,29 @@ export const careLinks = pgTable(
   },
   (t) => [primaryKey({ columns: [t.patientId, t.caretakerId] })],
 );
+
+
+export const patientLocation = pgTable("patient_location", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+
+  accuracyM: doublePrecision("accuracy_m"),
+
+  sharingEnabled: boolean("sharing_enabled")
+    .default(false)
+    .notNull(),
+
+  recordedAt: timestamp("recorded_at", {
+    withTimezone: true,
+  }),
+
+  updatedAt: timestamp("updated_at", {
+    withTimezone: true,
+  })
+    .defaultNow()
+    .notNull(),
+});

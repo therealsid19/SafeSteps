@@ -76,6 +76,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     await api("DELETE", "/me/link");
     setPartner(null);
   }, [api]);
+  
 
   return (
     <ProfileContext.Provider
@@ -84,10 +85,11 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       {children}
     </ProfileContext.Provider>
   );
+  
 }
-
 export function useProfile() {
   const ctx = useContext(ProfileContext);
   if (!ctx) throw new Error("useProfile must be used inside <ProfileProvider>");
   return ctx;
 }
+

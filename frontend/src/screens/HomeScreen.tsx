@@ -1,12 +1,27 @@
-import React from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useRef, useEffect, useState } from "react";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  Modal,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import {
+  useFocusEffect,
+  useNavigation
+} from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Mail, Mic, Navigation, Phone, ShieldCheck, Users } from "lucide-react-native";
-
+import { requestPatientLocation } from "./locationService";
+import { usePatientLocation } from "../lib/usePatientLocation";
+import PatientLocationCard from "../components/PatientLocationCard";
+import { usePartnerLocation } from "../lib/usePartnerLocation";
 import Avatar from "../components/Avatar";
 import BigAction from "../components/BigAction";
 import { Button } from "../components/Form";
@@ -15,6 +30,7 @@ import { useProfile } from "../context/ProfileContext";
 import { makeStyles, useTheme } from "../context/ThemeContext";
 import type { User } from "../lib/api";
 import type { RootStackParamList, TabParamList } from "../types/navigation";
+
 
 type HomeNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<TabParamList, "Home">,
@@ -37,21 +53,159 @@ export default function HomeScreen() {
 }
 
 /** Two huge actions and a talk button. Few elements, so VoiceOver has few stops. */
+
 function PatientHome() {
   const styles = useStyles();
   const { colors } = useTheme();
   const navigation = useNavigation<HomeNavigationProp>();
   const { profile, partner } = useProfile();
+  const { enableSharing, saveLocation } = usePatientLocation();
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const me = firstName(profile);
   const helper = firstName(partner);
 
+const [locationPromptShown, setLocationPromptShown] =
+  useState(false);
+
+useEffect(() => {
+  if (!profile || profile.role !== "patient") return;
+  if (locationPromptShown) return;
+
+  setLocationPromptShown(true);
+  setShowLocationPrompt(true);
+
+  Alert.alert(
+    "Share your location?",
+    "SafeStep can share your last known location with your linked caretaker. You can disable sharing at any time in Settings.",
+    [
+      {
+        text: "Not now",
+        style: "cancel",
+      },
+      {
+        text: "Enable location",
+        onPress: async () => {
+          try {
+            
+          const location = await requestPatientLocation();
+
+          if (!location) {
+            Alert.alert(
+              "Permission denied",
+              "You can enable location access in Settings."
+            );
+            return;
+          }
+
+          // The patient explicitly agreed to share.
+          await enableSharing();
+
+          // Save the location to PostgreSQL.
+          await saveLocation({
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy,
+          });
+
+          console.log("Patient location saved:", location);
+
+          } catch (error) {
+            console.warn("Location sharing failed:", error);
+            Alert.alert(
+              "Unable to share location",
+              "Your location could not be saved. Please try again."
+            );
+          }
+
+        },
+      },
+    ]
+  );
+});
+
+  async function handleEnableLocation() {
+  try {
+    const location = await requestPatientLocation();
+
+    if (!location) {
+      Alert.alert("Permission denied", "Location permission was not granted.");
+      return;
+    }
+
+    await enableSharing();
+
+    await saveLocation({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      accuracy: location.accuracy,
+    });
+
+    setShowLocationPrompt(false);
+    console.log("Patient location saved:", location);
+  } catch (error) {
+    console.error("Location sharing failed:", error);
+  }
+}
+
+
+
+
   function getHelp() {
-    if (partner?.phone_number) Linking.openURL(`tel:${partner.phone_number.replace(/[^\d+]/g, "")}`);
-    else navigation.navigate("Help");
+    if (partner?.phone_number) {
+      Linking.openURL(
+        `tel:${partner.phone_number.replace(/[^\d+]/g, "")}`
+      );
+    } else {
+      navigation.navigate("Help");
+    }
   }
 
-  return (
+
+  
+  
+  return (    
     <SafeAreaView style={styles.safe} edges={["top"]}>
+
+<Modal
+  visible={showLocationPrompt}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowLocationPrompt(false)}
+>
+  <View style={modalStyles.overlay}>
+    <View style={modalStyles.card}>
+      <Text style={modalStyles.title}>
+        Share your location?
+      </Text>
+
+      <Text style={modalStyles.description}>
+        SafeStep can share your last known location
+        with your linked caretaker.
+
+        You can disable sharing at any time.
+      </Text>
+
+      <Pressable
+        style={modalStyles.primaryButton}
+        onPress={handleEnableLocation}
+      >
+        <Text style={modalStyles.primaryText}>
+          Enable location
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={modalStyles.secondaryButton}
+        onPress={() => setShowLocationPrompt(false)}
+      >
+        <Text style={modalStyles.secondaryText}>
+          Not now
+        </Text>
+      </Pressable>
+    </View>
+  </View>
+</Modal>
+
       <View style={styles.patientContent}>
         <View style={styles.greeting} accessibilityRole="header">
           <Text style={styles.headingL}>
@@ -101,6 +255,12 @@ function CaregiverHome() {
   const { colors } = useTheme();
   const navigation = useNavigation<HomeNavigationProp>();
   const { profile, partner } = useProfile();
+  const {
+  data: patientLocation,
+  loading: locationLoading,
+  error: locationError,
+} = usePartnerLocation();
+
   const me = firstName(profile);
   const them = firstName(partner) ?? "your patient";
 
@@ -148,6 +308,21 @@ function CaregiverHome() {
           </View>
         )}
 
+
+      {partner && (
+        <>
+          <Text style={styles.headingM}>Patient location</Text>
+
+          <PatientLocationCard
+            data={patientLocation}
+            loading={locationLoading}
+            error={locationError}
+            onPress={() => navigation.navigate("Map")}
+          />
+        </>
+      )}
+
+
         <Text style={styles.headingM}>Recent alerts</Text>
         <View style={styles.card}>
           <View style={styles.row}>
@@ -166,6 +341,54 @@ function CaregiverHome() {
     </SafeAreaView>
   );
 }
+
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    gap: 16,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  description: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: "#4B5563",
+  },
+  primaryButton: {
+    backgroundColor: "#2563EB",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  primaryText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  secondaryButton: {
+    padding: 12,
+    alignItems: "center",
+  },
+  secondaryText: {
+    color: "#374151",
+    fontSize: 16,
+  },
+});
 
 const useStyles = makeStyles((c) =>
   StyleSheet.create({

@@ -2,6 +2,7 @@ import React from "react";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import MapScreen from "../screens/MapScreen";
 
 import CameraScreen from "../screens/CameraScreen";
 import HomeScreen from "../screens/HomeScreen";
@@ -23,6 +24,7 @@ function MainTabs() {
     <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="People" component={PeopleScreen} />
+      <Tab.Screen name="Map" component={MapScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );

@@ -24,6 +24,24 @@ export type User = {
   created_at: string;
 };
 
+
+export type PatientCoordinates = {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  recorded_at: string;
+};
+
+export type PartnerLocationResponse = {
+  sharing_enabled: boolean;
+  location: PatientCoordinates | null;
+};
+
+export type LocationSharingResponse = {
+  sharing_enabled: boolean;
+};
+
+
 /** Returns a fetch helper that sends the signed-in user's Better Auth session cookie. */
 export function useApi() {
   return useCallback(
