@@ -3,3 +3,5 @@ uvicorn[standard]
 psycopg[binary]
 psycopg-pool
 python-dotenv
+pydantic[email]
+clerk-backend-api
