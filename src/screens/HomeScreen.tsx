@@ -78,7 +78,7 @@ export default function HomeScreen() {
             icon={Navigation}
             iconColor={COLORS.cyan}
             backgroundColor="#142B39"
-            onPress={() => console.log("Explore")}
+            onPress={() => navigation.navigate("Camera")}
           />
 
           <ActionCard

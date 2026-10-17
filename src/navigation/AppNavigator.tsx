@@ -3,6 +3,7 @@ import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import CameraScreen from "../screens/CameraScreen";
 
 import {
   House,
@@ -105,14 +106,11 @@ export default function AppNavigator() {
         options={{ headerShown: false }}
         />
 
-        <Stack.Screen name="Camera" options={{ title: "Find an Object" }}>
-          {() => (
-            <PlaceholderScreen
-              title="Find an Object"
-              description="Your camera and object detection will appear here."
-            />
-          )}
-        </Stack.Screen>
+        <Stack.Screen
+        name="Camera"
+        component={CameraScreen}
+        options={{ headerShown: false }}
+        />
 
         <Stack.Screen name="Found" options={{ title: "" }}>
           {() => (
