@@ -6,13 +6,15 @@ from pathlib import Path
 
 import psycopg
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel, EmailStr
 
-from auth import AUTHORIZED_PARTIES, ClerkUserId, fetch_clerk_contact, require_clerk_user
+from auth import AUTHORIZED_PARTIES, clerk_test_page, ClerkUserId, fetch_clerk_contact, require_clerk_user
 
 load_dotenv()
 
@@ -23,7 +25,7 @@ DATABASE_URL = os.getenv("DATABASE_URL") or (
 )
 
 pool = AsyncConnectionPool(DATABASE_URL, open=False, kwargs={"row_factory": dict_row})
-SCHEMA_SQL = (Path(__file__).parent / "schema.sql").read_text()
+SCHEMA_SQL = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 
 @asynccontextmanager
@@ -35,8 +37,10 @@ async def lifespan(app: FastAPI):
     await pool.close()
 
 
-# Every route requires a signed-in Clerk user
-app = FastAPI(lifespan=lifespan, dependencies=[Depends(require_clerk_user)])
+app = FastAPI(lifespan=lifespan)
+
+# Every API route below requires a signed-in Clerk user
+api = APIRouter(dependencies=[Depends(require_clerk_user)])
 
 # Let your frontend (same origins Clerk allows) call this API from the browser
 app.add_middleware(
@@ -92,7 +96,7 @@ async def _me(conn, clerk_id: str):
     return await cur.fetchone()
 
 
-@app.get("/me", response_model=User)
+@api.get("/me", response_model=User)
 async def get_me(clerk_id: ClerkUserId):
     async with pool.connection() as conn:
         row = await _me(conn, clerk_id)
@@ -101,7 +105,7 @@ async def get_me(clerk_id: ClerkUserId):
     return row
 
 
-@app.post("/me", response_model=User, status_code=201)
+@api.post("/me", response_model=User, status_code=201)
 async def register_me(body: SignupIn, clerk_id: ClerkUserId):
     """First call after signing up with Clerk: pick patient or caretaker."""
     email, clerk_phone = await fetch_clerk_contact(clerk_id)
@@ -119,7 +123,7 @@ async def register_me(body: SignupIn, clerk_id: ClerkUserId):
         raise HTTPException(409, "Already registered (or email in use)")
 
 
-@app.post("/me/link", response_model=Link, status_code=201)
+@api.post("/me/link", response_model=Link, status_code=201)
 async def link_me(body: PartnerIn, clerk_id: ClerkUserId):
     """Link yourself to your patient/caretaker by their email."""
     async with pool.connection() as conn:
@@ -136,7 +140,17 @@ async def link_me(body: PartnerIn, clerk_id: ClerkUserId):
     return await add_link(LinkIn(patient_id=patient["id"], caretaker_id=caretaker["id"]))
 
 
-@app.get("/me/partner", response_model=User)
+@api.delete("/me/link", status_code=204)
+async def unlink_me(clerk_id: ClerkUserId):
+    """Unpair yourself from your patient/caretaker."""
+    async with pool.connection() as conn:
+        me = await _me(conn, clerk_id)
+    if me is None:
+        raise HTTPException(404, "Register first: POST /me")
+    await remove_link(me["id"])
+
+
+@api.get("/me/partner", response_model=User)
 async def get_my_partner(clerk_id: ClerkUserId):
     async with pool.connection() as conn:
         me = await _me(conn, clerk_id)
@@ -147,7 +161,7 @@ async def get_my_partner(clerk_id: ClerkUserId):
 
 # ---------- users ----------
 
-@app.get("/users", response_model=list[User])
+@api.get("/users", response_model=list[User])
 async def list_users(role: Role | None = None):
     async with pool.connection() as conn:
         if role:
@@ -159,7 +173,7 @@ async def list_users(role: Role | None = None):
         return await cur.fetchall()
 
 
-@app.get("/users/{user_id}", response_model=User)
+@api.get("/users/{user_id}", response_model=User)
 async def get_user(user_id: int):
     async with pool.connection() as conn:
         cur = await conn.execute("SELECT * FROM users WHERE id = %s", (user_id,))
@@ -169,7 +183,7 @@ async def get_user(user_id: int):
     return row
 
 
-@app.post("/users", response_model=User, status_code=201)
+@api.post("/users", response_model=User, status_code=201)
 async def add_user(user: UserIn):
     try:
         async with pool.connection() as conn:
@@ -183,7 +197,7 @@ async def add_user(user: UserIn):
         raise HTTPException(409, "Email already registered")
 
 
-@app.delete("/users/{user_id}", status_code=204)
+@api.delete("/users/{user_id}", status_code=204)
 async def remove_user(user_id: int):
     # Any care link for this user is removed automatically (ON DELETE CASCADE)
     async with pool.connection() as conn:
@@ -194,7 +208,7 @@ async def remove_user(user_id: int):
 
 # ---------- patient <-> caretaker links ----------
 
-@app.get("/links", response_model=list[Link])
+@api.get("/links", response_model=list[Link])
 async def list_links():
     async with pool.connection() as conn:
         cur = await conn.execute(
@@ -203,7 +217,7 @@ async def list_links():
         return await cur.fetchall()
 
 
-@app.post("/links", response_model=Link, status_code=201)
+@api.post("/links", response_model=Link, status_code=201)
 async def add_link(link: LinkIn):
     try:
         async with pool.connection() as conn:
@@ -221,7 +235,7 @@ async def add_link(link: LinkIn):
         )
 
 
-@app.get("/users/{user_id}/partner", response_model=User)
+@api.get("/users/{user_id}/partner", response_model=User)
 async def get_partner(user_id: int):
     """A patient's caretaker, or a caretaker's patient."""
     async with pool.connection() as conn:
@@ -240,7 +254,7 @@ async def get_partner(user_id: int):
     return row
 
 
-@app.delete("/links/{user_id}", status_code=204)
+@api.delete("/links/{user_id}", status_code=204)
 async def remove_link(user_id: int):
     """Unlink a user (patient or caretaker id) from their partner."""
     async with pool.connection() as conn:
@@ -250,3 +264,21 @@ async def remove_link(user_id: int):
         )
     if cur.rowcount == 0:
         raise HTTPException(404, "No link for that user")
+
+
+app.include_router(api)
+
+
+# ---------- dev-only sign-in page (no auth) ----------
+
+@app.get("/", include_in_schema=False)
+async def root(request: Request):
+    # Clerk returns here after sign-in (with ?__clerk_db_jwt=...); keep the query
+    q = request.url.query
+    return RedirectResponse("/dev" + (f"?{q}" if q else ""))
+
+
+@app.get("/dev", response_class=HTMLResponse, include_in_schema=False)
+async def dev_page():
+    """Sign in with Clerk and try the API in the browser. Remove before going live."""
+    return clerk_test_page()

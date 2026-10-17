@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API test page</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 32px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; } h2 { font-size: 15px; margin: 24px 0 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, select, button { font: inherit; padding: 6px 10px; }
+  button { cursor: pointer; }
+  pre { background: #f4f4f4; padding: 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
+  .muted { color: #777; font-size: 13px; }
+  #top { display: flex; justify-content: space-between; align-items: center; }
+</style>
+</head>
+<body>
+<div id="top"><h1>API test page</h1><div id="user-button"></div></div>
+<div id="sign-in"></div>
+
+<div id="tools" hidden>
+  <h2>1. Register (first time only)</h2>
+  <div class="row">
+    <select id="role"><option value="patient">patient</option><option value="caretaker">caretaker</option></select>
+    <input id="phone" placeholder="phone (optional)">
+    <button onclick="call('POST','/me',{role:val('role'),phone_number:val('phone')||null})">POST /me</button>
+  </div>
+
+  <h2>2. Link to your patient / caretaker</h2>
+  <div class="row">
+    <input id="partner" placeholder="their email" size="28">
+    <button onclick="call('POST','/me/link',{partner_email:val('partner')})">POST /me/link</button>
+  </div>
+
+  <h2>3. Look things up</h2>
+  <div class="row">
+    <button onclick="call('GET','/me')">GET /me</button>
+    <button onclick="call('GET','/me/partner')">GET /me/partner</button>
+    <button onclick="call('GET','/users')">GET /users</button>
+    <button onclick="call('GET','/links')">GET /links</button>
+  </div>
+
+  <h2>Response</h2>
+  <pre id="out">Click a button above.</pre>
+
+  <h2>Token for PowerShell or /docs</h2>
+  <div class="row">
+    <button onclick="showToken()">Get fresh token</button>
+    <span class="muted">Expires in about a minute.</span>
+  </div>
+  <pre id="token" hidden></pre>
+</div>
+
+<script defer crossorigin="anonymous" src="https://{{FAPI}}/npm/@clerk/ui@1/dist/ui.browser.js"></script>
+<script defer crossorigin="anonymous" data-clerk-publishable-key="{{PK}}"
+        src="https://{{FAPI}}/npm/@clerk/clerk-js@6/dist/clerk.browser.js"></script>
+<script>
+  const val = id => document.getElementById(id).value.trim();
+  const out = document.getElementById('out');
+
+  window.addEventListener('load', async () => {
+    await Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+    if (Clerk.isSignedIn) {
+      Clerk.mountUserButton(document.getElementById('user-button'), { afterSignOutUrl: '/dev' });
+      document.getElementById('tools').hidden = false;
+    } else {
+      Clerk.mountSignIn(document.getElementById('sign-in'), {
+        forceRedirectUrl: '/dev',
+        signUpForceRedirectUrl: '/dev',
+      });
+    }
+    const wasSignedIn = Clerk.isSignedIn;
+    Clerk.addListener(({ user }) => {           // reload after sign-in / sign-out
+      if (!!user !== wasSignedIn) location.reload();
+    });
+  });
+
+  async function call(method, path, body) {
+    out.textContent = '...';
+    const token = await Clerk.session.getToken();
+    const res = await fetch(path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, ...(body && { 'Content-Type': 'application/json' }) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let shown = text;
+    try { shown = JSON.stringify(JSON.parse(text), null, 2); } catch {}
+    out.textContent = `${method} ${path} → ${res.status}\n\n${shown}`;
+  }
+
+  async function showToken() {
+    const el = document.getElementById('token');
+    el.textContent = await Clerk.session.getToken();
+    el.hidden = false;
+  }
+</script>
+</body>
+</html>

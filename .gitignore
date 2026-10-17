@@ -1,4 +1,20 @@
-.idea
-.venv
+# --- secrets (never commit) ---
 .env
-tiger-cloud-safesteps-credentials.env
+.env.*
+!.env.example
+*credentials*.env
+
+# --- Python / backend ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# --- Node / frontend (frontend/.gitignore has the Expo-specific rules) ---
+node_modules/
+
+# --- editors / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
