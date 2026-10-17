@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import {
   View,
@@ -9,25 +8,21 @@ import {
   ActivityIndicator,
   Keyboard,
 } from "react-native";
-import {
-  CameraView,
-  useCameraPermissions,
-} from "expo-camera";
-import {
-  Camera,
-  Search,
-  X,
-  ScanSearch,
-} from "lucide-react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { Camera, Search, X, ScanSearch } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 
-import { COLORS } from "../constants/theme";
+import { Button } from "../components/Form";
+import { RADIUS, SPACING, TYPE } from "../constants/theme";
+import { makeStyles, useTheme } from "../context/ThemeContext";
 
 export default function CameraScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const navigation = useNavigation();
 
-  const [permission, requestPermission] =
-    useCameraPermissions();
+  const [permission, requestPermission] = useCameraPermissions();
 
   const [targetObject, setTargetObject] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -36,10 +31,7 @@ export default function CameraScreen() {
   if (!permission) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator
-          size="large"
-          color={COLORS.primary}
-        />
+        <ActivityIndicator size="large" color={colors.text} />
       </View>
     );
   }
@@ -48,26 +40,19 @@ export default function CameraScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.permissionContainer}>
-        <Camera size={64} color={COLORS.cyan} />
-
-        <Text style={styles.permissionTitle}>
+        <View style={styles.permissionIcon}>
+          <Camera size={44} color={colors.onCard} />
+        </View>
+        <Text style={styles.permissionTitle} accessibilityRole="header">
           Camera access needed
         </Text>
-
         <Text style={styles.permissionDescription}>
-          SafeStep uses your camera to help locate
-          everyday objects.
+          SafeStep uses your camera to help locate everyday objects.
         </Text>
-
-        <Pressable
-          style={styles.permissionButton}
-          accessibilityRole="button"
-          onPress={requestPermission}
-        >
-          <Text style={styles.buttonText}>
-            Allow Camera Access
-          </Text>
-        </Pressable>
+        <View style={styles.permissionActions}>
+          <Button title="Allow camera access" onPress={requestPermission} />
+          <Button title="Not now" variant="secondary" onPress={() => navigation.goBack()} />
+        </View>
       </View>
     );
   }
@@ -82,49 +67,35 @@ export default function CameraScreen() {
   return (
     <View style={styles.container}>
       {/* Live camera preview */}
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        facing="back"
-      />
+      <CameraView style={StyleSheet.absoluteFill} facing="back" />
 
-      {/* Dark overlay at the top */}
-      <View style={styles.topOverlay}>
+      <SafeAreaView edges={["top"]} style={styles.topOverlay}>
         <Pressable
           onPress={() => navigation.goBack()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
           style={styles.closeButton}
         >
-          <X size={26} color="#FFFFFF" />
+          <X size={26} color={colors.text} />
         </Pressable>
-
-        <Text style={styles.headerTitle}>
-          Find an Object
+        <Text style={styles.headerTitle} accessibilityRole="header">
+          Find an object
         </Text>
-      </View>
+      </SafeAreaView>
 
       {/* Camera guide */}
-      <View
-        style={styles.scanArea}
-        pointerEvents="none"
-      >
+      <View style={styles.scanArea} pointerEvents="none">
         <View style={styles.scanFrame}>
-          <ScanSearch
-            size={58}
-            color="rgba(255,255,255,0.7)"
-          />
+          <ScanSearch size={58} color="rgba(255,255,255,0.75)" />
         </View>
       </View>
 
       {/* Bottom controls */}
       <View style={styles.bottomPanel}>
-        <Text style={styles.panelTitle}>
-          What are you looking for?
-        </Text>
+        <Text style={styles.panelTitle}>What are you looking for?</Text>
 
         <View style={styles.inputContainer}>
-          <Search size={22} color={COLORS.muted} />
-
+          <Search size={22} color={colors.muted} />
           <TextInput
             style={styles.input}
             value={targetObject}
@@ -133,34 +104,21 @@ export default function CameraScreen() {
               setIsSearching(false);
             }}
             placeholder="e.g. keys, water bottle"
-            placeholderTextColor={COLORS.muted}
+            placeholderTextColor={colors.muted}
             accessibilityLabel="Object to find"
             returnKeyType="search"
             onSubmitEditing={handleSearch}
           />
         </View>
 
-        <Pressable
-          style={[
-            styles.searchButton,
-            !targetObject.trim() && styles.disabledButton,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Start object search"
-          accessibilityState={{
-            disabled: !targetObject.trim(),
-          }}
+        <Button
+          title={isSearching ? "Search requested" : "Start searching"}
+          icon={Search}
           disabled={!targetObject.trim()}
           onPress={handleSearch}
-        >
-          <Search size={22} color="#FFFFFF" />
+        />
 
-          <Text style={styles.buttonText}>
-            {isSearching ? "Search requested" : "Start searching"}
-          </Text>
-        </Pressable>
-
-        <Text style={styles.statusText}>
+        <Text style={styles.statusText} accessibilityLiveRegion="polite">
           {isSearching
             ? `Ready to search for "${targetObject.trim()}". Object detection is not connected yet.`
             : "Enter an object name to begin."}
@@ -170,129 +128,97 @@ export default function CameraScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  center: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  permissionContainer: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 28,
-    gap: 20,
-  },
-  permissionTitle: {
-    color: COLORS.text,
-    fontSize: 26,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  permissionDescription: {
-    color: COLORS.muted,
-    fontSize: 16,
-    lineHeight: 24,
-    textAlign: "center",
-  },
-  permissionButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 26,
-    paddingVertical: 16,
-    borderRadius: 16,
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  topOverlay: {
-    paddingTop: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    backgroundColor: "rgba(9,14,23,0.75)",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 18,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  scanArea: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 35,
-  },
-  scanFrame: {
-    width: "100%",
-    maxWidth: 350,
-    aspectRatio: 1,
-    borderWidth: 2,
-    borderColor: "rgba(83,181,255,0.8)",
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bottomPanel: {
-    backgroundColor: COLORS.surface,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-  },
-  panelTitle: {
-    color: COLORS.text,
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 18,
-  },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    minHeight: 56,
-    gap: 12,
-    marginBottom: 16,
-  },
-  input: {
-    flex: 1,
-    color: COLORS.text,
-    fontSize: 16,
-    paddingVertical: 12,
-    outlineStyle: "none",
-  } as any,
-  searchButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 16,
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  statusText: {
-    color: COLORS.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-    marginTop: 16,
-  },
-});
+const useStyles = makeStyles((c) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.background },
+    center: {
+      flex: 1,
+      backgroundColor: c.background,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    permissionContainer: {
+      flex: 1,
+      backgroundColor: c.background,
+      justifyContent: "center",
+      padding: 24,
+      gap: SPACING.md,
+    },
+    permissionIcon: {
+      width: 88,
+      height: 88,
+      borderRadius: RADIUS.pill,
+      backgroundColor: c.card,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: SPACING.sm,
+    },
+    permissionTitle: { ...TYPE.headingL, color: c.text },
+    permissionDescription: { ...TYPE.bodyL, color: c.muted },
+    permissionActions: { marginTop: SPACING.sm },
+    topOverlay: {
+      paddingHorizontal: 16,
+      paddingBottom: 14,
+      backgroundColor: "rgba(26,25,23,0.82)",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    closeButton: {
+      width: 48,
+      height: 48,
+      borderRadius: RADIUS.pill,
+      backgroundColor: c.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    headerTitle: { ...TYPE.titleL, color: c.text },
+    scanArea: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 35,
+    },
+    scanFrame: {
+      width: "100%",
+      maxWidth: 350,
+      aspectRatio: 1,
+      borderWidth: 3,
+      borderColor: c.card,
+      borderRadius: RADIUS.xl,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    bottomPanel: {
+      backgroundColor: c.background,
+      paddingHorizontal: 20,
+      paddingTop: SPACING.lg,
+      paddingBottom: 40,
+      borderTopLeftRadius: RADIUS.xl,
+      borderTopRightRadius: RADIUS.xl,
+    },
+    panelTitle: { ...TYPE.headingM, color: c.text, marginBottom: SPACING.md },
+    inputContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderRadius: RADIUS.pill,
+      paddingHorizontal: 20,
+      minHeight: 58,
+      gap: 12,
+    },
+    input: {
+      ...TYPE.bodyL,
+      flex: 1,
+      color: c.text,
+      paddingVertical: 12,
+      outlineStyle: "none",
+    } as any,
+    statusText: {
+      ...TYPE.bodyM,
+      color: c.muted,
+      textAlign: "center",
+      marginTop: SPACING.md,
+    },
+  }),
+);

@@ -21,7 +21,9 @@ export const careLinks = pgTable(
       .notNull()
       .unique()
       .references(() => user.id, { onDelete: "cascade" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
   },
   (t) => [primaryKey({ columns: [t.patientId, t.caretakerId] })],
 );

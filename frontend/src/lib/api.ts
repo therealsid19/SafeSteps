@@ -28,13 +28,14 @@ export type User = {
 export function useApi() {
   return useCallback(
     async <T = unknown>(method: string, path: string, body?: unknown): Promise<T> => {
-      const cookie = await authClient.getCookie();
+      // Native keeps the session cookie in SecureStore (not available on web, where the browser has it)
+      const cookie = Platform.OS === "web" ? null : await authClient.getCookie();
       let res: Response;
       try {
         res = await fetch(`${API_URL}${path}`, {
           method,
           headers: {
-            Cookie: cookie,
+            ...(cookie && { Cookie: cookie }),
             ...(body !== undefined && { "Content-Type": "application/json" }),
           },
           body: body !== undefined ? JSON.stringify(body) : undefined,

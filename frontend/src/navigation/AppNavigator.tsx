@@ -1,128 +1,87 @@
-
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+
 import CameraScreen from "../screens/CameraScreen";
-
-import {
-  House,
-  Clock3,
-  Users,
-  Settings,
-} from "lucide-react-native";
-
 import HomeScreen from "../screens/HomeScreen";
-import PlaceholderScreen from "../screens/PlaceholderScreen";
 import ListeningScreen from "../screens/ListeningScreen";
 import PeopleScreen from "../screens/PeopleScreen";
+import PlaceholderScreen from "../screens/PlaceholderScreen";
 import SettingsScreen from "../screens/SettingsScreen";
-import { COLORS } from "../constants/theme";
+import TabBar from "../components/TabBar";
+import { FONTS } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
 
-import type {
-  RootStackParamList,
-  TabParamList,
-} from "../types/navigation";
+import type { RootStackParamList, TabParamList } from "../types/navigation";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
 function MainTabs() {
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.muted,
-        tabBarStyle: {
-          backgroundColor: COLORS.background,
-          borderTopColor: COLORS.border,
-          height: 65,
-          paddingTop: 8,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          paddingBottom: 5,
-        },
-        tabBarIcon: ({ color, size }) => {
-          switch (route.name) {
-            case "Home":
-              return <House color={color} size={size} />;
-            case "People":
-              return <Users color={color} size={size} />;
-            case "Settings":
-              return <Settings color={color} size={size} />;
-          }
-        },
-      })}
-    >
+    <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="Home" component={HomeScreen} />
-
-
       <Tab.Screen name="People" component={PeopleScreen} />
-
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
 
 export default function AppNavigator() {
+  const { scheme, colors } = useTheme();
+  const base = scheme === "dark" ? DarkTheme : DefaultTheme;
+  const navTheme = {
+    ...base,
+    colors: {
+      ...base.colors,
+      background: colors.background,
+      card: colors.background,
+      text: colors.text,
+      border: colors.border,
+      primary: colors.accent,
+    },
+  };
+
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       <Stack.Navigator
         initialRouteName="MainTabs"
         screenOptions={{
-          headerStyle: {
-            backgroundColor: COLORS.background,
-          },
-          headerTintColor: COLORS.text,
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.text,
+          headerTitleStyle: { fontFamily: FONTS.semibold },
           headerShadowVisible: false,
-          contentStyle: {
-            backgroundColor: COLORS.background,
-          },
+          contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen
-          name="MainTabs"
-          component={MainTabs}
-          options={{ headerShown: false }}
-        />
-
-        <Stack.Screen
-        name="Listening"
-        component={ListeningScreen}
-        options={{ headerShown: false }}
-        />
-
-        <Stack.Screen
-        name="Camera"
-        component={CameraScreen}
-        options={{ headerShown: false }}
-        />
+        <Stack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
+        <Stack.Screen name="Listening" component={ListeningScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Camera" component={CameraScreen} options={{ headerShown: false }} />
 
         <Stack.Screen name="Found" options={{ title: "" }}>
           {() => (
             <PlaceholderScreen
-              title="Object Found!"
+              title="Object found!"
               description="Spoken guidance and object details will appear here."
             />
           )}
         </Stack.Screen>
 
-        <Stack.Screen name="Awareness" options={{ title: "Around You" }}>
+        <Stack.Screen name="Awareness" options={{ title: "Around you" }}>
           {() => (
             <PlaceholderScreen
-              title="Environmental Awareness"
+              title="What's around you"
               description="Potential obstacle warnings will appear here."
             />
           )}
         </Stack.Screen>
 
-        <Stack.Screen name="Help" options={{ title: "Get Help" }}>
+        <Stack.Screen name="Help" options={{ title: "Get help" }}>
           {() => (
             <PlaceholderScreen
-              title="Get Help"
-              description="Request assistance from a trusted contact."
+              title="Get help"
+              description="Pair with a caregiver on the People tab so this button can call them."
             />
           )}
         </Stack.Screen>

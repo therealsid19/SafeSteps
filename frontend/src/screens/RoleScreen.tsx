@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { HeartHandshake, User as UserIcon } from "lucide-react-native";
+import { Check, HeartHandshake, User as UserIcon } from "lucide-react-native";
 
 import { Button, ErrorText, Field, LinkText } from "../components/Form";
-import { COLORS, RADIUS, SPACING } from "../constants/theme";
+import { RADIUS, SPACING, TYPE } from "../constants/theme";
 import { useProfile } from "../context/ProfileContext";
+import { makeStyles, useTheme } from "../context/ThemeContext";
 import { authClient } from "../lib/auth-client";
 import type { Role } from "../lib/api";
 
@@ -25,9 +26,11 @@ const OPTIONS: { role: Role; title: string; description: string; icon: typeof Us
 
 /** Shown once, right after the first sign-in. */
 export default function RoleScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { register } = useProfile();
-  const [role, setRole] = useState<Role | null>(null);
   const { data: session } = authClient.useSession();
+  const [role, setRole] = useState<Role | null>(null);
   // Filled in from the Google account when Google shares it
   const [phone, setPhone] = useState(session?.user.phoneNumber ?? "");
   const [busy, setBusy] = useState(false);
@@ -57,13 +60,14 @@ export default function RoleScreen() {
   }
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.container}>
-      <Text style={styles.heading}>Who are you?</Text>
+    <ScrollView style={styles.flex} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <Text style={styles.heading} accessibilityRole="header">Who are you?</Text>
       <Text style={styles.subtitle}>This sets up your SafeStep account.</Text>
 
-      <View style={styles.options}>
+      <View style={styles.options} accessibilityRole="radiogroup">
         {OPTIONS.map(({ role: r, title, description, icon: Icon }) => {
           const selected = role === r;
+          const fg = selected ? colors.onCard : colors.text;
           return (
             <Pressable
               key={r}
@@ -71,13 +75,17 @@ export default function RoleScreen() {
               accessibilityRole="radio"
               accessibilityState={{ selected }}
               accessibilityLabel={title}
+              accessibilityHint={description}
               style={[styles.option, selected && styles.optionSelected]}
             >
-              <Icon size={36} color={selected ? COLORS.cyan : COLORS.muted} />
-              <View style={styles.optionText}>
-                <Text style={styles.optionTitle}>{title}</Text>
-                <Text style={styles.optionDescription}>{description}</Text>
+              <View style={[styles.optionIcon, selected && styles.optionIconSelected]}>
+                <Icon size={30} color={fg} />
               </View>
+              <View style={styles.optionText}>
+                <Text style={[styles.optionTitle, { color: fg }]}>{title}</Text>
+                <Text style={[styles.optionDescription, { color: fg }]}>{description}</Text>
+              </View>
+              {selected ? <Check size={24} color={fg} /> : null}
             </Pressable>
           );
         })}
@@ -98,24 +106,33 @@ export default function RoleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: COLORS.background },
-  container: { flexGrow: 1, justifyContent: "center", padding: 24 },
-  heading: { color: COLORS.text, fontSize: 28, fontWeight: "700", marginBottom: 8 },
-  subtitle: { color: COLORS.muted, fontSize: 16, marginBottom: SPACING.lg },
-  options: { gap: 12 },
-  option: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    padding: 18,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surface,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  optionSelected: { borderColor: COLORS.cyan, backgroundColor: "#142B39" },
-  optionText: { flex: 1 },
-  optionTitle: { color: COLORS.text, fontSize: 18, fontWeight: "600", marginBottom: 4 },
-  optionDescription: { color: COLORS.muted, fontSize: 14, lineHeight: 20 },
-});
+const useStyles = makeStyles((c) =>
+  StyleSheet.create({
+    flex: { flex: 1, backgroundColor: c.background },
+    container: { flexGrow: 1, justifyContent: "center", padding: 24 },
+    heading: { ...TYPE.headingXL, color: c.text, marginBottom: SPACING.sm },
+    subtitle: { ...TYPE.bodyL, color: c.muted, marginBottom: SPACING.lg },
+    options: { gap: 12 },
+    option: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.md,
+      padding: 18,
+      borderRadius: RADIUS.lg,
+      backgroundColor: c.surface,
+    },
+    optionSelected: { backgroundColor: c.card },
+    optionIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: RADIUS.pill,
+      backgroundColor: c.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    optionIconSelected: { backgroundColor: "rgba(0,0,0,0.08)" },
+    optionText: { flex: 1, gap: 2 },
+    optionTitle: TYPE.titleL,
+    optionDescription: { ...TYPE.bodyM, opacity: 0.75 },
+  }),
+);

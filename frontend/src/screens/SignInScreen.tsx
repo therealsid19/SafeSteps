@@ -1,11 +1,15 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { Footprints } from "lucide-react-native";
 
 import { Button, ErrorText } from "../components/Form";
-import { COLORS } from "../constants/theme";
+import { RADIUS, SPACING, TYPE } from "../constants/theme";
+import { makeStyles, useTheme } from "../context/ThemeContext";
 import { signInWithGoogle } from "../lib/auth-client";
 
 export default function SignInScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,18 +28,43 @@ export default function SignInScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.brand}>SafeStep</Text>
-      <Text style={styles.heading}>Welcome</Text>
-      <Text style={styles.subtitle}>Sign in with your Google account to continue.</Text>
-      <ErrorText>{error}</ErrorText>
-      <Button title="Continue with Google" onPress={handleGoogle} loading={busy} />
+      <View style={styles.hero}>
+        <View style={styles.logo}>
+          <Footprints size={36} color={colors.onAccent} strokeWidth={2} />
+        </View>
+        <Text style={styles.brand}>SafeStep</Text>
+        <Text style={styles.heading} accessibilityRole="header">
+          Find your way, with someone looking out for you.
+        </Text>
+      </View>
+      <View>
+        <ErrorText>{error}</ErrorText>
+        <Button title="Continue with Google" onPress={handleGoogle} loading={busy} />
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: COLORS.background },
-  brand: { color: COLORS.cyan, fontSize: 16, fontWeight: "700", marginBottom: 12 },
-  heading: { color: COLORS.text, fontSize: 28, fontWeight: "700", marginBottom: 8 },
-  subtitle: { color: COLORS.muted, fontSize: 16, marginBottom: 24 },
-});
+const useStyles = makeStyles((c) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      justifyContent: "space-between",
+      padding: 24,
+      paddingBottom: 40,
+      backgroundColor: c.background,
+    },
+    hero: { flex: 1, justifyContent: "center", gap: SPACING.md },
+    logo: {
+      width: 72,
+      height: 72,
+      borderRadius: RADIUS.lg,
+      backgroundColor: c.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: SPACING.sm,
+    },
+    brand: { ...TYPE.titleM, color: c.muted },
+    heading: { ...TYPE.headingXL, color: c.text },
+  }),
+);

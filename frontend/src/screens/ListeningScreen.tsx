@@ -1,17 +1,17 @@
-
 import React, { useEffect, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  Animated,
-} from "react-native";
-import { Mic, X, AudioLines } from "lucide-react-native";
+import { View, Text, StyleSheet, Pressable, Animated } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Mic, MicOff, X, AudioLines } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
-import { COLORS } from "../constants/theme";
+
+import { RADIUS, SPACING, TYPE } from "../constants/theme";
+import { makeStyles, useTheme } from "../context/ThemeContext";
+
+const EXAMPLES = ["“Find my water bottle”", "“What's around me?”", "“I need help”"];
 
 export default function ListeningScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const navigation = useNavigation();
   const [isListening, setIsListening] = useState(true);
 
@@ -26,17 +26,9 @@ export default function ListeningScreen() {
 
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1.18,
-          duration: 850,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 850,
-          useNativeDriver: true,
-        }),
-      ])
+        Animated.timing(pulse, { toValue: 1.18, duration: 850, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true }),
+      ]),
     );
 
     animation.start();
@@ -45,68 +37,54 @@ export default function ListeningScreen() {
   }, [isListening, pulse]);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Pressable
         style={styles.closeButton}
         accessibilityRole="button"
         accessibilityLabel="Close listening screen"
         onPress={() => navigation.goBack()}
       >
-        <X color={COLORS.text} size={26} />
+        <X color={colors.text} size={26} />
       </Pressable>
 
       <View style={styles.content}>
-        <Text style={styles.title}>
-          {isListening ? "I'm listening..." : "Paused"}
+        <Text style={styles.title} accessibilityRole="header" accessibilityLiveRegion="polite">
+          {isListening ? "I'm listening…" : "Paused"}
         </Text>
-
         <Text style={styles.subtitle}>
-          {isListening
-            ? "Tell me what you need help with."
-            : "Tap the microphone to start again."}
+          {isListening ? "Tell me what you need help with." : "Tap the microphone to start again."}
         </Text>
 
         <View style={styles.micContainer}>
-          <Animated.View
-            style={[
-              styles.pulseRing,
-              { transform: [{ scale: pulse }] },
-            ]}
-          />
-
+          <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulse }] }]} />
           <Pressable
             style={styles.micButton}
             accessibilityRole="button"
-            accessibilityLabel={
-              isListening ? "Pause listening" : "Start listening"
-            }
+            accessibilityLabel={isListening ? "Pause listening" : "Start listening"}
             onPress={() => setIsListening(!isListening)}
           >
-            <Mic size={48} color="#FFFFFF" />
+            {isListening ? (
+              <Mic size={52} color={colors.onPrimary} />
+            ) : (
+              <MicOff size={52} color={colors.onPrimary} />
+            )}
           </Pressable>
         </View>
 
         <View style={styles.status}>
-          <AudioLines size={22} color={COLORS.cyan} />
-          <Text style={styles.statusText}>
+          <AudioLines size={22} color={isListening ? colors.success : colors.muted} />
+          <Text style={[styles.statusText, { color: isListening ? colors.success : colors.muted }]}>
             {isListening ? "Listening" : "Microphone paused"}
           </Text>
         </View>
 
         <View style={styles.examples}>
-          <Text style={styles.examplesTitle}>
-            TRY SAYING
-          </Text>
-
-          <Text style={styles.example}>
-            "Find my water bottle"
-          </Text>
-          <Text style={styles.example}>
-            "What's around me?"
-          </Text>
-          <Text style={styles.example}>
-            "I need help"
-          </Text>
+          <Text style={styles.examplesTitle}>Try saying</Text>
+          {EXAMPLES.map((e) => (
+            <Text key={e} style={styles.example}>
+              {e}
+            </Text>
+          ))}
         </View>
       </View>
 
@@ -117,93 +95,74 @@ export default function ListeningScreen() {
       >
         <Text style={styles.cancelText}>Cancel</Text>
       </Pressable>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    paddingHorizontal: 24,
-    paddingTop: 35,
-    paddingBottom: 40,
-  },
-  closeButton: {
-    alignSelf: "flex-end",
-    padding: 10,
-  },
-  content: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    color: COLORS.text,
-    fontSize: 30,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-  subtitle: {
-    color: COLORS.muted,
-    fontSize: 16,
-    textAlign: "center",
-  },
-  micContainer: {
-    width: 240,
-    height: 240,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 50,
-    marginBottom: 28,
-  },
-  pulseRing: {
-    position: "absolute",
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "#203C82",
-    opacity: 0.45,
-  },
-  micButton: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  status: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  statusText: {
-    color: COLORS.cyan,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  examples: {
-    marginTop: 65,
-    alignItems: "center",
-    gap: 14,
-  },
-  examplesTitle: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 2,
-  },
-  example: {
-    color: COLORS.text,
-    fontSize: 16,
-  },
-  cancelButton: {
-    alignItems: "center",
-    padding: 16,
-  },
-  cancelText: {
-    color: COLORS.muted,
-    fontSize: 17,
-  },
-});
+const useStyles = makeStyles((c) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.background,
+      paddingHorizontal: 20,
+      paddingBottom: SPACING.md,
+    },
+    closeButton: {
+      alignSelf: "flex-end",
+      width: 52,
+      height: 52,
+      borderRadius: RADIUS.pill,
+      backgroundColor: c.surface,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: SPACING.sm,
+    },
+    content: { flex: 1, alignItems: "center", justifyContent: "center" },
+    title: { ...TYPE.headingXL, color: c.text, marginBottom: SPACING.sm, textAlign: "center" },
+    subtitle: { ...TYPE.bodyL, color: c.muted, textAlign: "center" },
+    micContainer: {
+      width: 240,
+      height: 240,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 40,
+      marginBottom: SPACING.lg,
+    },
+    pulseRing: {
+      position: "absolute",
+      width: 200,
+      height: 200,
+      borderRadius: 100,
+      backgroundColor: c.surface,
+    },
+    micButton: {
+      width: 136,
+      height: 136,
+      borderRadius: 68,
+      backgroundColor: c.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    status: { flexDirection: "row", alignItems: "center", gap: 10 },
+    statusText: TYPE.titleM,
+    examples: {
+      marginTop: 48,
+      alignSelf: "stretch",
+      backgroundColor: c.surface,
+      borderRadius: RADIUS.xl,
+      padding: 20,
+      gap: 12,
+    },
+    examplesTitle: { ...TYPE.caption, color: c.muted, textTransform: "uppercase", letterSpacing: 1.5 },
+    example: { ...TYPE.bodyL, color: c.text },
+    cancelButton: {
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 58,
+      borderRadius: RADIUS.pill,
+      backgroundColor: c.surfaceAlt,
+      marginTop: SPACING.md,
+    },
+    cancelText: { ...TYPE.titleM, color: c.text },
+  }),
+);
