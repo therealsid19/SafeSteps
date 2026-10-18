@@ -12,7 +12,8 @@
         "NSSpeechRecognitionUsageDescription": "Allow SafeStep to recognize your voice during a fall safety check.",
         "NSMicrophoneUsageDescription": "Allow SafeStep to listen for your response after a possible fall."
       },
-      "bundleIdentifier": "com.anonymous.SafeStep"
+      "bundleIdentifier": "com.jeffreyyu.safestep",
+      "appleTeamId": "YBP8N453TC"
     },
     "android": {
       "adaptiveIcon": {
@@ -25,7 +26,7 @@
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.anonymous.SafeStep"
+      "package": "com.jeffreyyu.safestep"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,11 +45,18 @@
         }
       ],
       [
-  "expo-sensors",
-  {
-    "motionPermission": "Allow SafeStep to detect sudden movements that may indicate a fall."
-  }
-]
+        "expo-sensors",
+        {
+          "motionPermission": "Allow SafeStep to detect sudden movements that may indicate a fall."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SafeStep to share your location with your caregivers."
+        }
+      ],
+      "./plugins/withSceneLifecycle"
     ],
     "scheme": "safestep"
   }
