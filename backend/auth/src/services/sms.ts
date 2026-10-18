@@ -5,6 +5,15 @@ type FallReason = "timeout" | "help" | "voice_error";
 
 type TwilioConfig = { accountSid: string; authToken: string; from: string };
 
+/** How long to wait for Twilio before treating the text as failed (the patient is waiting). */
+const TWILIO_TIMEOUT_MS = 10_000;
+
+/** First name only: the spec keeps notification text to "possible fall" and a first name. */
+export const firstName = (name: string) => name.trim().split(/\s+/)[0] || "Your patient";
+
+/** Spec: phone numbers never appear in logs. Twilio's errors sometimes quote them. */
+const maskNumbers = (text: string) => text.replace(/\+?\d[\d\s().-]{6,}\d/g, "[number]");
+
 /** Read at call time so tests and a Railway variable change don't need a restart of this module. */
 function twilioConfig(): TwilioConfig | null {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
@@ -35,20 +44,19 @@ const WHAT_HAPPENED: Record<FallReason, string> = {
   voice_error: "couldn't complete the safety check",
 };
 
-export function fallSmsBody(patientName: string, reason: FallReason, patientPhone: string | null) {
-  const call = patientPhone ? ` Call them now: ${patientPhone}` : " Check on them now.";
-  return `SafeStep alert: ${patientName} may have fallen and ${WHAT_HAPPENED[reason]}.${call}`;
+/** "possible fall" and the first name only (spec, Privacy). Details are in the app. */
+export function fallSmsBody(patientName: string, reason: FallReason) {
+  return `SafeStep: possible fall. ${firstName(patientName)} ${WHAT_HAPPENED[reason]}. Check on them now, or open SafeStep to call.`;
 }
 
 type FallSms = {
   to: string;
   patientName: string;
-  patientPhone: string | null;
   reason: FallReason;
 };
 
 /** Sends the fall text. Returns Twilio's message SID; throws if Twilio refuses it. */
-export async function sendFallSms({ to, patientName, patientPhone, reason }: FallSms): Promise<string> {
+export async function sendFallSms({ to, patientName, reason }: FallSms): Promise<string> {
   const config = twilioConfig();
   if (!config) throw new Error("Twilio is not configured");
 
@@ -63,8 +71,9 @@ export async function sendFallSms({ to, patientName, patientPhone, reason }: Fal
       body: new URLSearchParams({
         To: to,
         From: config.from,
-        Body: fallSmsBody(patientName, reason, patientPhone),
+        Body: fallSmsBody(patientName, reason),
       }),
+      signal: AbortSignal.timeout(TWILIO_TIMEOUT_MS),
     },
   );
 
@@ -78,7 +87,7 @@ export async function sendFallSms({ to, patientName, patientPhone, reason }: Fal
     // e.g. 21608: a trial account can only text verified numbers
     throw new Error(
       `Twilio refused the text (${response.status}${result.code ? `, code ${result.code}` : ""}): ${
-        result.message ?? "no message"
+        maskNumbers(result.message ?? "no message")
       }`,
     );
   }

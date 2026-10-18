@@ -11,6 +11,7 @@ export type FallPushData = {
   incidentId: string;
   patientId: string;
   patientName?: string;
+  reason?: "timeout" | "help" | "voice_error";
   detectedAt: string;
 };
 
@@ -54,9 +55,22 @@ export async function registerForFallAlerts(api: Api): Promise<PushRegistration>
 
 /** Before sign-out: stop this phone getting the signed-out caretaker's fall alerts. */
 export async function unregisterFromFallAlerts(api: Api) {
-  if (!registeredToken) return;
+  let token = registeredToken;
+  if (!token && Platform.OS !== "web") {
+    // Registering may have failed this session while the server still has the token from
+    // an earlier one. Look it up without prompting (only if permission was already given).
+    try {
+      const projectId: string | undefined =
+        Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+      const { granted } = await Notifications.getPermissionsAsync();
+      if (granted && projectId) token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } catch {
+      // No token to remove
+    }
+  }
+  if (!token) return;
   try {
-    await api("DELETE", "/notifications/register", { token: registeredToken });
+    await api("DELETE", "/notifications/register", { token });
     registeredToken = null;
   } catch (e) {
     // Signing out must still work offline. If another caretaker signs in here, registering

@@ -17,14 +17,37 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Incident = typeof fallIncidents.$inferSelect;
 
-type Patient = { name: string; phoneNumber: string | null };
+type Patient = { name: string };
 
 /**
  * Alerts the caretaker by text (Twilio) and, if their phone registered for it, push.
- * "sent" if either got through. The caller must have claimed the incident
- * (alertStatus "pending"), so this runs once per attempt.
+ * The text is the alert that counts: "sent" needs it to go out when it can be sent, since
+ * an accepted push ticket doesn't mean the phone got it. Push alone counts only when
+ * texting isn't possible. The caller must have claimed the incident (alertStatus
+ * "pending"), so this runs once per attempt.
  */
 async function deliver(incident: Incident, patient: Patient) {
+  try {
+    return await tryDeliver(incident, patient);
+  } catch (error) {
+    // Never leave it "pending": a retry only re-sends a "failed" incident
+    console.error(`Fall alert crashed for incident ${incident.id}:`, error);
+    await db
+      .update(fallIncidents)
+      .set({ alertStatus: "failed" })
+      .where(eq(fallIncidents.id, incident.id));
+    return {
+      status: 202 as const,
+      body: {
+        incidentId: incident.id,
+        alertStatus: "failed",
+        detail: "Your caregiver's phone could not be reached",
+      },
+    };
+  }
+}
+
+async function tryDeliver(incident: Incident, patient: Patient) {
   const [caretaker] = await db
     .select({ phoneNumber: user.phoneNumber })
     .from(user)
@@ -39,36 +62,35 @@ async function deliver(incident: Incident, patient: Patient) {
     .limit(1);
 
   const smsTo = toE164(caretaker?.phoneNumber);
-  const attempts: Promise<unknown>[] = [];
+  const canText = smsEnabled() && smsTo !== null;
 
-  if (smsEnabled() && smsTo) {
-    attempts.push(
-      sendFallSms({
-        to: smsTo,
-        patientName: patient.name,
-        patientPhone: toE164(patient.phoneNumber) ?? patient.phoneNumber,
-        reason: incident.reason,
-      }).then((sid) => console.log(`Fall text sent for incident ${incident.id}: ${sid}`)),
-    );
+  const [text, push] = await Promise.allSettled([
+    canText
+      ? sendFallSms({ to: smsTo!, patientName: patient.name, reason: incident.reason })
+      : Promise.resolve(null),
+    device
+      ? sendEmergencyNotification({
+          token: device.token,
+          incidentId: incident.id,
+          patientId: incident.patientId,
+          patientName: patient.name,
+          reason: incident.reason,
+          detectedAt: incident.detectedAt,
+        }).then(() => true)
+      : Promise.resolve(null),
+  ]);
+
+  if (text.status === "fulfilled" && text.value) {
+    console.log(`Fall text sent for incident ${incident.id}: ${text.value}`);
+  }
+  for (const [channel, r] of [["text", text], ["push", push]] as const) {
+    if (r.status === "rejected") console.error(`Fall ${channel} failed for incident ${incident.id}:`, r.reason);
   }
 
-  if (device) {
-    attempts.push(
-      sendEmergencyNotification({
-        token: device.token,
-        incidentId: incident.id,
-        patientId: incident.patientId,
-        patientName: patient.name,
-        detectedAt: incident.detectedAt,
-      }),
-    );
-  }
-
-  const results = await Promise.allSettled(attempts);
-  for (const r of results) {
-    if (r.status === "rejected") console.error(`Fall alert failed for incident ${incident.id}:`, r.reason);
-  }
-  const sent = results.some((r) => r.status === "fulfilled");
+  const sent = canText
+    ? text.status === "fulfilled"
+    : push.status === "fulfilled" && push.value === true;
+  const attempted = canText || !!device;
 
   await db
     .update(fallIncidents)
@@ -80,7 +102,7 @@ async function deliver(incident: Incident, patient: Patient) {
   }
 
   let detail = "Your caregiver's phone could not be reached";
-  if (attempts.length === 0) {
+  if (!attempted) {
     if (!caretaker?.phoneNumber) detail = "Your caregiver has no phone number in SafeStep";
     else if (!smsTo) detail = "Your caregiver's phone number is missing its country code";
     else detail = "Text alerts aren't set up on the SafeStep server";
@@ -112,7 +134,6 @@ falls.post("/escalate", async (c) => {
     .select({
       name: user.name,
       role: user.role,
-      phoneNumber: user.phoneNumber,
     })
     .from(user)
     .where(eq(user.id, patientId))

@@ -16,5 +16,11 @@ export type RootStackParamList = {
   Awareness: undefined;
   Help: undefined;
   FallAlert: undefined;
-  CaretakerAlert: { incidentId: string; patientId: string; patientName?: string; detectedAt: string };
+  CaretakerAlert: {
+    incidentId: string;
+    patientId: string;
+    patientName?: string;
+    reason?: "timeout" | "help" | "voice_error";
+    detectedAt: string;
+  };
 };

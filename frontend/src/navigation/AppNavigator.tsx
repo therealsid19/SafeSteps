@@ -108,6 +108,7 @@ function CaretakerPush() {
         incidentId: data.incidentId,
         patientId: data.patientId,
         patientName: data.patientName,
+        reason: data.reason,
         detectedAt: data.detectedAt,
       });
     const opened = new Set<string>();
@@ -117,13 +118,20 @@ function CaretakerPush() {
       open(data);
     };
 
-    // Tapped while the app was closed: the tap that launched us. Clear it so it
-    // doesn't reopen an old alert the next time this mounts.
-    const last = Notifications.getLastNotificationResponse();
-    if (last) {
-      Notifications.clearLastNotificationResponse();
+    // Tapped while the app was closed: the tap that launched us. Wait until the
+    // navigator can take it, then clear it so it doesn't reopen an old alert later.
+    let launchTimer: ReturnType<typeof setTimeout> | undefined;
+    const openLaunchTap = (tries = 0) => {
+      const last = Notifications.getLastNotificationResponse();
+      if (!last) return;
+      if (!navigation.getState()?.routeNames?.includes("CaretakerAlert") && tries < 50) {
+        launchTimer = setTimeout(() => openLaunchTap(tries + 1), 100);
+        return;
+      }
       openOnce(last.notification.request.content.data);
-    }
+      Notifications.clearLastNotificationResponse();
+    };
+    openLaunchTap();
 
     const received = Notifications.addNotificationReceivedListener((n) =>
       openOnce(n.request.content.data),
@@ -132,6 +140,7 @@ function CaretakerPush() {
       openOnce(r.notification.request.content.data),
     );
     return () => {
+      clearTimeout(launchTimer);
       received.remove();
       tapped.remove();
     };

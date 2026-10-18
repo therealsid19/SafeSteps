@@ -20,12 +20,12 @@ describe("toE164", () => {
 });
 
 describe("fallSmsBody", () => {
-  test("says who, what happened, and how to call them", () => {
-    expect(fallSmsBody("Ada", "help", "+15551234567")).toBe(
-      "SafeStep alert: Ada may have fallen and asked for help. Call them now: +15551234567",
+  test("says possible fall and the first name only (spec, Privacy)", () => {
+    expect(fallSmsBody("Ada Lovelace", "help")).toBe(
+      "SafeStep: possible fall. Ada asked for help. Check on them now, or open SafeStep to call.",
     );
-    expect(fallSmsBody("Ada", "timeout", null)).toBe(
-      "SafeStep alert: Ada may have fallen and didn't answer the safety check. Check on them now.",
+    expect(fallSmsBody("Ada", "timeout")).toBe(
+      "SafeStep: possible fall. Ada didn't answer the safety check. Check on them now, or open SafeStep to call.",
     );
   });
 });
@@ -59,7 +59,6 @@ describe("sendFallSms", () => {
   const input = {
     to: "+15551234567",
     patientName: "Ada",
-    patientPhone: "+15559998888",
     reason: "help" as const,
   };
 
@@ -75,12 +74,15 @@ describe("sendFallSms", () => {
     const form = new URLSearchParams(String(requests[0].init.body));
     expect(form.get("To")).toBe("+15551234567");
     expect(form.get("From")).toBe("+15550001111");
-    expect(form.get("Body")).toContain("Ada may have fallen");
+    expect(form.get("Body")).toContain("possible fall. Ada asked for help");
   });
 
-  test("throws with Twilio's reason when it refuses (e.g. unverified trial number)", async () => {
-    stubTwilio({ code: 21608, message: "The number is unverified" }, 400);
-    await expect(sendFallSms(input)).rejects.toThrow("code 21608");
+  test("throws with Twilio's reason when it refuses, without the phone number", async () => {
+    stubTwilio({ code: 21608, message: "The number +1 555-123-4567 is unverified" }, 400);
+    const error = await sendFallSms(input).catch((e: Error) => e);
+    expect(String(error)).toContain("code 21608");
+    expect(String(error)).toContain("The number [number] is unverified");
+    expect(String(error)).not.toContain("4567");
   });
 
   test("is off, and refuses to send, without all three variables", async () => {

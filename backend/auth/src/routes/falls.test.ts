@@ -220,7 +220,7 @@ describe.skipIf(!TEST_DATABASE_URL)("POST /falls/escalate (DB)", () => {
       expect(texts).toHaveLength(1);
       expect(texts[0].get("To")).toBe("+15553334444");
       expect(texts[0].get("Body")).toBe(
-        "SafeStep alert: Pat may have fallen and asked for help. Call them now: +15551112222",
+        "SafeStep: possible fall. Pat asked for help. Check on them now, or open SafeStep to call.",
       );
       expect(pushes).toHaveLength(0);
     });
@@ -242,6 +242,25 @@ describe.skipIf(!TEST_DATABASE_URL)("POST /falls/escalate (DB)", () => {
 
       expect((await escalate(body)).status).toBe(201);
       expect(texts).toHaveLength(2);
+    });
+
+    test("an accepted push doesn't hide a failed text", async () => {
+      const token = `ExponentPushToken[${tag}-sms]`;
+      await db.insert(pushTokens).values({ userId: smsCaretaker, token, platform: "ios" });
+      try {
+        const body = { clientAlertId: randomUUID(), reason: "timeout", detectedAt: new Date().toISOString() };
+        failNextText = true;
+
+        const first = await escalate(body);
+        expect(first.status).toBe(202);
+        expect(pushes).toHaveLength(1);
+
+        // The retry texts again (and pushes again: better twice than not at all)
+        expect((await escalate(body)).status).toBe(201);
+        expect(texts).toHaveLength(2);
+      } finally {
+        await db.delete(pushTokens).where(eq(pushTokens.token, token));
+      }
     });
 
     test("tells the patient when the caretaker has no phone number", async () => {

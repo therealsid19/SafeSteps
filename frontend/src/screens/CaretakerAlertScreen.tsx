@@ -12,6 +12,12 @@ import { useApi, type User } from "../lib/api";
 import { telUrl } from "../lib/phone";
 import type { RootStackParamList } from "../types/navigation";
 
+const WHAT_HAPPENED = {
+  timeout: "They didn't answer SafeStep's safety check.",
+  help: "They asked for help.",
+  voice_error: "SafeStep couldn't complete its voice safety check with them.",
+} as const;
+
 /** Opened from a fall push: who fell, when, and a one-tap call. */
 export default function CaretakerAlertScreen() {
   const styles = useStyles();
@@ -47,7 +53,7 @@ export default function CaretakerAlertScreen() {
         <Text style={styles.title}>{name} may have fallen</Text>
         <Text style={styles.description}>
           {when ? `Detected at ${when}. ` : ""}
-          {"They didn't answer SafeStep's safety check. Check on them now."}
+          {`${WHAT_HAPPENED[params.reason ?? "timeout"]} Check on them now.`}
         </Text>
       </View>
 

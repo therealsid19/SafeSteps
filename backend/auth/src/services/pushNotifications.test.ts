@@ -20,7 +20,8 @@ const input = {
   token: "ExponentPushToken[abc]",
   incidentId: "inc-1",
   patientId: "patient-1",
-  patientName: "Ada",
+  patientName: "Ada Lovelace",
+  reason: "help" as const,
   detectedAt: new Date("2026-10-18T09:00:00.000Z"),
 };
 
@@ -37,7 +38,10 @@ describe("sendEmergencyNotification", () => {
     expect(body.priority).toBe("high");
     // Must match FALL_CHANNEL_ID in frontend/src/lib/notifications.ts
     expect(body.channelId).toBe("fall-alerts");
-    expect(body.ttl).toBe(300);
+    // No ttl: a phone that's offline for a while must still get the alert when it reconnects
+    expect(body.ttl).toBeUndefined();
+    // Spec, Privacy: first name only
+    expect(body.body).toBe("Ada may need help. Check on them now.");
     // A custom sound file that isn't bundled in the app plays nothing on some devices
     expect(body.sound).toBe("default");
     // Must match FallPushData in frontend/src/lib/notifications.ts
@@ -46,6 +50,7 @@ describe("sendEmergencyNotification", () => {
       incidentId: "inc-1",
       patientId: "patient-1",
       patientName: "Ada",
+      reason: "help",
       detectedAt: "2026-10-18T09:00:00.000Z",
     });
   });
