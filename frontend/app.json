@@ -7,7 +7,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow SafeStep to recognize your voice during a fall safety check.",
+        "NSMicrophoneUsageDescription": "Allow SafeStep to listen for your response after a possible fall."
+      },
+      "bundleIdentifier": "com.anonymous.SafeStep"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,7 +21,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.anonymous.SafeStep"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -26,7 +35,20 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow SafeStep to listen for your response after a possible fall.",
+          "speechRecognitionPermission": "Allow SafeStep to recognize your voice during a fall safety check."
+        }
+      ],
+      [
+  "expo-sensors",
+  {
+    "motionPermission": "Allow SafeStep to detect sudden movements that may indicate a fall."
+  }
+]
     ],
     "scheme": "safestep"
   }

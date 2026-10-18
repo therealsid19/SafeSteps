@@ -13,6 +13,10 @@ import SettingsScreen from "../screens/SettingsScreen";
 import TabBar from "../components/TabBar";
 import { FONTS } from "../constants/theme";
 import { useTheme } from "../context/ThemeContext";
+import FallAlertScreen from "../screens/FallAlertScreen";
+import { useFallDetection } from "../hooks/useFallDetection";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import type { RootStackParamList, TabParamList } from "../types/navigation";
 
@@ -30,6 +34,41 @@ function MainTabs() {
   );
 }
 
+
+function FallDetectionListener() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const alertActiveRef = React.useRef(false);
+
+  useFallDetection({
+    enabled: true,
+    onFallDetected: () => {
+      if (alertActiveRef.current) return;
+
+      alertActiveRef.current = true;
+      navigation.navigate("FallAlert");
+    },
+  });
+
+  React.useEffect(() => {
+    const unsubscribe = navigation.addListener("state", () => {
+      const currentRoute = navigation.getState()?.routes[
+        navigation.getState().index
+      ];
+
+      if (currentRoute?.name !== "FallAlert") {
+        alertActiveRef.current = false;
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  return null;
+}
+
+
 export default function AppNavigator() {
   const { scheme, colors } = useTheme();
   const base = scheme === "dark" ? DarkTheme : DefaultTheme;
@@ -44,9 +83,11 @@ export default function AppNavigator() {
       primary: colors.accent,
     },
   };
+  
 
   return (
     <NavigationContainer theme={navTheme}>
+      <FallDetectionListener />
       <Stack.Navigator
         initialRouteName="MainTabs"
         screenOptions={{
@@ -60,7 +101,14 @@ export default function AppNavigator() {
         <Stack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
         <Stack.Screen name="Listening" component={ListeningScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Camera" component={CameraScreen} options={{ headerShown: false }} />
-
+        <Stack.Screen
+          name="FallAlert"
+          component={FallAlertScreen}
+          options={{
+            headerShown: false,
+            gestureEnabled: false,
+          }}
+        />
         <Stack.Screen name="Found" options={{ title: "" }}>
           {() => (
             <PlaceholderScreen
