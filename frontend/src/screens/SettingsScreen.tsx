@@ -8,18 +8,22 @@ import { RADIUS, SPACING, TYPE } from "../constants/theme";
 import { useProfile } from "../context/ProfileContext";
 import { makeStyles } from "../context/ThemeContext";
 import { authClient } from "../lib/auth-client";
-import { API_URL } from "../lib/api";
+import { API_URL, useApi } from "../lib/api";
+import { unregisterFromFallAlerts } from "../lib/notifications";
 
 export default function SettingsScreen() {
   const styles = useStyles();
   const { profile } = useProfile();
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const api = useApi();
 
   async function handleSignOut() {
     setSigningOut(true);
     setError(null);
     try {
+      // While still signed in: the server only removes your own token
+      await unregisterFromFallAlerts(api);
       await authClient.signOut();
     } catch (e) {
       console.warn("Sign out failed", e);

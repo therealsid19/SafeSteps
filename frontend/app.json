@@ -24,7 +24,10 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
       ],
       "package": "com.jeffreyyu.safestep"
     },
@@ -65,8 +68,20 @@
         }
       ],
       "./plugins/withSceneLifecycle",
-      "onnxruntime-react-native"
+      "onnxruntime-react-native",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "fall-alerts"
+        }
+      ]
     ],
-    "scheme": "safestep"
+    "scheme": "safestep",
+    "extra": {
+      "eas": {
+        "projectId": "e5a9d935-1b44-4518-bfa7-f6d828fc6bfc"
+      }
+    },
+    "owner": "usbsas-team"
   }
 }

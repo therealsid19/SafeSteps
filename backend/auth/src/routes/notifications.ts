@@ -1,6 +1,6 @@
 
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { auth } from "../auth";
 import { db } from "../db";
 import { user, pushTokens } from "../db/schema";
@@ -64,4 +64,27 @@ notifications.post("/register", async (c) => {
     });
 
   return c.json({ registered: true });
+});
+
+/** Sign-out: stop sending this phone fall alerts for the signed-in caretaker. */
+notifications.delete("/register", async (c) => {
+  const session = await auth.api.getSession({
+    headers: c.req.raw.headers,
+  });
+
+  if (!session) {
+    return c.json({ detail: "Not signed in" }, 401);
+  }
+
+  const body = await c.req.json<{ token?: string }>().catch(() => null);
+  if (!body?.token) {
+    return c.json({ detail: "token is required" }, 400);
+  }
+
+  // Only your own registration, so nobody can unsubscribe someone else's phone
+  await db
+    .delete(pushTokens)
+    .where(and(eq(pushTokens.token, body.token), eq(pushTokens.userId, session.user.id)));
+
+  return c.body(null, 204);
 });

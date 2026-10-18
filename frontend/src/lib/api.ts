@@ -6,6 +6,8 @@ import { API_URL } from "./config";
 
 export { API_URL };
 
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -49,8 +51,12 @@ export function useApi() {
       // Native keeps the session cookie in SecureStore (not available on web, where the browser has it)
       const cookie = Platform.OS === "web" ? null : await authClient.getCookie();
       let res: Response;
+      // A request that hangs must fail, so callers (like the fall alert retry loop) can react
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
         res = await fetch(`${API_URL}${path}`, {
+          signal: controller.signal,
           method,
           headers: {
             ...(cookie && { Cookie: cookie }),
@@ -62,6 +68,8 @@ export function useApi() {
         });
       } catch {
         throw new ApiError(0, `Can't reach the server at ${API_URL}. Is the backend running?`);
+      } finally {
+        clearTimeout(timeout);
       }
       if (res.status === 204) return undefined as T;
       const data = await res.json().catch(() => null);

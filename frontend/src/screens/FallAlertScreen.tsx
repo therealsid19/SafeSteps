@@ -1,12 +1,17 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import * as Crypto from "expo-crypto";
 import * as Speech from "expo-speech";
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
+
+import { useProfile } from "../context/ProfileContext";
+import { ApiError, useApi } from "../lib/api";
+import { telUrl } from "../lib/phone";
 
 type AlertStatus =
   | "preparing"
@@ -15,6 +20,31 @@ type AlertStatus =
   | "escalated";
 
 const RESPONSE_SECONDS = 10;
+
+type Outcome = "safe" | "help" | "timeout" | "voice_error";
+
+/** What happened to the caretaker alert, shown to the patient. */
+type Delivery =
+  | { state: "sending" }
+  | { state: "sent" }
+  | { state: "not_sent"; message: string };
+
+type EscalateResponse = {
+  incidentId: string;
+  alertStatus: "pending" | "sent" | "acknowledged" | "failed";
+  detail?: string;
+};
+
+// Spec: retry every 5 s for 60 s. Safe to repeat: every attempt sends the same clientAlertId.
+const RETRY_EVERY_MS = 5000;
+const RETRY_FOR_MS = 60_000;
+
+/** A message for the patient when the server refuses the alert (4xx). */
+function refusedMessage(e: ApiError) {
+  if (e.status === 409) return "You don't have a caregiver linked in SafeStep yet.";
+  if (e.status === 401) return "You're signed out of SafeStep, so your caregiver wasn't notified.";
+  return "SafeStep couldn't send the alert to your caregiver.";
+}
 
 function classifyResponse(text: string): "safe" | "help" | null {
   const normalized = text.toLowerCase().replace(/[^\w\s']/g, " ");
@@ -44,6 +74,15 @@ export default function FallAlertScreen() {
   const [status, setStatus] = useState<AlertStatus>("preparing");
   const [secondsLeft, setSecondsLeft] = useState(RESPONSE_SECONDS);
   const [heard, setHeard] = useState("");
+  const [delivery, setDelivery] = useState<Delivery>({ state: "sending" });
+  const api = useApi();
+  const { partner } = useProfile();
+  const callCaretaker = telUrl(partner?.phone_number);
+
+  // When the fall was detected, not when the check finished
+  const detectedAt = useRef(new Date().toISOString());
+  // One id per fall, so the server can tell a retry from a new fall
+  const clientAlertId = useRef(Crypto.randomUUID());
 
   const completed = useRef(false);
   const deadline = useRef<number | null>(null);
@@ -64,8 +103,52 @@ export default function FallAlertScreen() {
     }
   }, []);
 
+  // Keeps going if the patient leaves this screen: the alert must still go out.
+  const escalate = useCallback(
+    async (reason: Exclude<Outcome, "safe">) => {
+      const giveUpAt = Date.now() + RETRY_FOR_MS;
+      for (;;) {
+        try {
+          const res = await api<EscalateResponse>("POST", "/falls/escalate", {
+            clientAlertId: clientAlertId.current,
+            reason,
+            detectedAt: detectedAt.current,
+          });
+          if (res.alertStatus === "sent" || res.alertStatus === "acknowledged") {
+            setDelivery({ state: "sent" });
+            return;
+          }
+          if (res.alertStatus === "failed") {
+            // Shown while we keep trying (the caregiver may turn alerts on, Expo may recover)
+            setDelivery({
+              state: "not_sent",
+              message: res.detail ?? "Your caregiver could not be notified.",
+            });
+          }
+          // "pending": another attempt is sending it; ask again shortly
+        } catch (e) {
+          if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+            setDelivery({ state: "not_sent", message: refusedMessage(e) });
+            return; // retrying won't change the answer
+          }
+          // Offline or a server error: keep trying
+        }
+        if (Date.now() >= giveUpAt) {
+          setDelivery((d) =>
+            d.state === "not_sent"
+              ? d
+              : { state: "not_sent", message: "Can't reach SafeStep, so your caregiver wasn't notified." },
+          );
+          return;
+        }
+        await new Promise((r) => setTimeout(r, RETRY_EVERY_MS));
+      }
+    },
+    [api],
+  );
+
   const finish = useCallback(
-    (outcome: "safe" | "help" | "timeout") => {
+    (outcome: Outcome) => {
       if (completed.current) return;
       completed.current = true;
 
@@ -80,14 +163,9 @@ export default function FallAlertScreen() {
       }
 
       setStatus("escalated");
-
-      // TODO: Replace with backend incident escalation.
-      console.log("Fall escalation required:", {
-        outcome,
-        detectedAt: new Date().toISOString(),
-      });
+      escalate(outcome);
     },
-    [navigation, stopListening]
+    [navigation, stopListening, escalate]
   );
 
   useSpeechRecognitionEvent("result", (event) => {
@@ -109,7 +187,9 @@ export default function FallAlertScreen() {
   useSpeechRecognitionEvent("error", (event) => {
     if (completed.current) return;
     console.warn("Speech recognition error:", event.error);
-    // The timeout still causes escalation.
+    // After listening started, the countdown still escalates. Before that there is no
+    // countdown, so escalate now or the alert would never go out.
+    if (!deadline.current) finish("voice_error");
   });
 
   useEffect(() => {
@@ -208,7 +288,7 @@ export default function FallAlertScreen() {
 
           <Text style={styles.listening}>Microphone is listening...</Text>
           <Text style={styles.instructions}>
-            Say "I'm okay" or "I need help".
+            {`Say "I'm okay" or "I need help".`}
           </Text>
 
           {heard ? (
@@ -219,7 +299,7 @@ export default function FallAlertScreen() {
 
       {status === "safe" && (
         <>
-          <Text style={styles.title}>Glad you're okay</Text>
+          <Text style={styles.title}>{"Glad you're okay"}</Text>
           <Text style={styles.description}>
             Your safety check has been cancelled.
           </Text>
@@ -229,12 +309,31 @@ export default function FallAlertScreen() {
       {status === "escalated" && (
         <>
           <Text style={styles.title}>Help requested</Text>
-          <Text style={styles.description}>
-            SafeStep detected that you may need assistance.
-          </Text>
-          <Text style={styles.warning}>
-            Caregiver notification and calling are not connected yet.
-          </Text>
+          {delivery.state === "sending" && (
+            <Text style={styles.description}>Notifying your caregiver...</Text>
+          )}
+          {delivery.state === "sent" && (
+            <Text style={styles.description}>
+              Your caregiver has been notified.
+            </Text>
+          )}
+          {delivery.state === "not_sent" && (
+            <>
+              <Text style={styles.warning}>{delivery.message}</Text>
+              <Text style={styles.description}>Please call someone for help.</Text>
+            </>
+          )}
+
+          {callCaretaker ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Call ${partner?.name ?? "your caregiver"}`}
+              onPress={() => Linking.openURL(callCaretaker)}
+              style={({ pressed }) => [styles.callButton, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={styles.callText}>Call {partner?.name ?? "caregiver"}</Text>
+            </Pressable>
+          ) : null}
         </>
       )}
     </View>
@@ -287,8 +386,24 @@ const styles = StyleSheet.create({
   },
   warning: {
     marginTop: 20,
-    fontSize: 15,
+    marginBottom: 12,
+    fontSize: 17,
+    fontWeight: "600",
     color: "#B91C1C",
     textAlign: "center",
+  },
+  callButton: {
+    marginTop: 12,
+    backgroundColor: "#B91C1C",
+    borderRadius: 999,
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    alignSelf: "stretch",
+    alignItems: "center",
+  },
+  callText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

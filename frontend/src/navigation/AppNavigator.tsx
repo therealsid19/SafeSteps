@@ -19,9 +19,14 @@ import TabBar from "../components/TabBar";
 import { FONTS } from "../constants/theme";
 import { useTheme } from "../context/ThemeContext";
 import FallAlertScreen from "../screens/FallAlertScreen";
+import CaretakerAlertScreen from "../screens/CaretakerAlertScreen";
 import { useFallDetection } from "../hooks/useFallDetection";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
+import { useApi } from "../lib/api";
+import { isFallPush, registerForFallAlerts, type FallPushData } from "../lib/notifications";
 
 import type { RootStackParamList, TabParamList } from "../types/navigation";
 
@@ -50,11 +55,13 @@ function MainTabs() {
 function FallDetectionListener() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { profile } = useProfile();
 
   const alertActiveRef = React.useRef(false);
 
   useFallDetection({
-    enabled: true,
+    // Only a patient's phone runs the safety check; /falls/escalate rejects caretakers.
+    enabled: profile?.role === "patient",
     onFallDetected: () => {
       if (alertActiveRef.current) return;
 
@@ -79,6 +86,79 @@ function FallDetectionListener() {
   return null;
 }
 
+/**
+ * Caretakers: register this phone for fall pushes, and open the alert screen when one
+ * arrives (app open) or is tapped (app in the background or closed).
+ */
+function CaretakerPush() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const api = useApi();
+
+  // Every launch, so a changed token (reinstall, restore) reaches the server
+  React.useEffect(() => {
+    registerForFallAlerts(api).then((result) => {
+      if (!result.ok) console.warn("Fall alerts are off on this phone:", result.reason);
+    });
+  }, [api]);
+
+  React.useEffect(() => {
+    const open = (data: FallPushData) =>
+      navigation.navigate("CaretakerAlert", {
+        incidentId: data.incidentId,
+        patientId: data.patientId,
+        patientName: data.patientName,
+        reason: data.reason,
+        detectedAt: data.detectedAt,
+      });
+    const opened = new Set<string>();
+    const openOnce = (data: unknown) => {
+      if (!isFallPush(data) || opened.has(data.incidentId)) return;
+      opened.add(data.incidentId);
+      open(data);
+    };
+
+    // Tapped while the app was closed: the tap that launched us. Wait until the
+    // navigator can take it, then clear it so it doesn't reopen an old alert later.
+    let launchTimer: ReturnType<typeof setTimeout> | undefined;
+    const openLaunchTap = (tries = 0) => {
+      const last = Notifications.getLastNotificationResponse();
+      if (!last) return;
+      if (!navigation.getState()?.routeNames?.includes("CaretakerAlert") && tries < 50) {
+        launchTimer = setTimeout(() => openLaunchTap(tries + 1), 100);
+        return;
+      }
+      openOnce(last.notification.request.content.data);
+      Notifications.clearLastNotificationResponse();
+    };
+    openLaunchTap();
+
+    const received = Notifications.addNotificationReceivedListener((n) =>
+      openOnce(n.request.content.data),
+    );
+    const tapped = Notifications.addNotificationResponseReceivedListener((r) =>
+      openOnce(r.notification.request.content.data),
+    );
+    return () => {
+      clearTimeout(launchTimer);
+      received.remove();
+      tapped.remove();
+    };
+  }, [navigation]);
+
+  return null;
+}
+
+function RoleListeners() {
+  const { profile } = useProfile();
+  return (
+    <>
+      <FallDetectionListener />
+      {profile?.role === "caretaker" && Platform.OS !== "web" && <CaretakerPush />}
+    </>
+  );
+}
+
 export default function AppNavigator() {
   const { scheme, colors } = useTheme();
   const base = scheme === "dark" ? DarkTheme : DefaultTheme;
@@ -96,7 +176,7 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer theme={navTheme}>
-      <FallDetectionListener />
+      <RoleListeners />
       <Stack.Navigator
         initialRouteName="MainTabs"
         screenOptions={{
@@ -129,6 +209,11 @@ export default function AppNavigator() {
             headerShown: false,
             gestureEnabled: false,
           }}
+        />
+        <Stack.Screen
+          name="CaretakerAlert"
+          component={CaretakerAlertScreen}
+          options={{ headerShown: false, presentation: "fullScreenModal" }}
         />
         <Stack.Screen name="Found" options={{ title: "" }}>
           {() => (
