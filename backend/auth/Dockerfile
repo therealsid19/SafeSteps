@@ -13,4 +13,4 @@ ENV NODE_ENV=production
 EXPOSE 8000
 
 # Apply pending migrations in ./drizzle, then start the API
-CMD ["sh", "-c", "bun run db:migrate && bun run start"]
+CMD ["sh", "-c", "bun run src/db/migrate.ts && bun run start"]
