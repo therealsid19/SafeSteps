@@ -1,7 +1,11 @@
 node_modules
 .env
+<<<<<<< HEAD
 .env.*
 !.env.example
 Dockerfile
 docker-compose.yml
 README.md
+=======
+.git
+>>>>>>> 5c5a843 (?)
