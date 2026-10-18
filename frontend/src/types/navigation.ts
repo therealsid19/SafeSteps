@@ -15,4 +15,5 @@ export type RootStackParamList = {
   Found: undefined;
   Awareness: undefined;
   Help: undefined;
+  FallAlert: undefined;
 };
