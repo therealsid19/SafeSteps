@@ -1,10 +1,17 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { and, eq, ne, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { auth } from "../auth";
 import { db } from "../db";
-import { careLinks, user, type Role } from "../db/schema";
+import {
+  createLink,
+  findCaretaker,
+  listPatients,
+  unlinkAsCaretaker,
+  unlinkAsPatient,
+} from "../db/care-links";
+import { MAX_PATIENTS_PER_CARETAKER, user, type Role } from "../db/schema";
 
 type UserRow = typeof user.$inferSelect;
 
@@ -23,25 +30,13 @@ function toApi(u: UserRow) {
   };
 }
 
-const fail = (status: 400 | 404 | 409, detail: string) =>
+const fail = (status: 400 | 403 | 404 | 409, detail: string) =>
   new HTTPException(status, { res: Response.json({ detail }, { status }) });
 
 async function findUser(where: ReturnType<typeof eq>) {
   const [row] = await db.select().from(user).where(where).limit(1);
   return row ?? null;
 }
-
-async function findPartner(userId: string) {
-  const [row] = await db
-    .select({ partner: user })
-    .from(careLinks)
-    .innerJoin(user, or(eq(user.id, careLinks.patientId), eq(user.id, careLinks.caretakerId)))
-    .where(and(or(eq(careLinks.patientId, userId), eq(careLinks.caretakerId, userId)), ne(user.id, userId)))
-    .limit(1);
-  return row?.partner ?? null;
-}
-
-const isUniqueViolation = (e: unknown) => (e as { code?: string })?.code === "23505";
 
 type Env = { Variables: { user: UserRow } };
 
@@ -91,9 +86,21 @@ export const me = new Hono<Env>()
   })
 
   .get("/partner", async (c) => {
-    const partner = await findPartner(c.get("user").id);
+    const me = c.get("user");
+    // TEMPORARY: a caretaker gets their earliest-linked patient so the current
+    // single-partner app keeps working. Remove once the app uses GET /me/patients.
+    const partner =
+      me.role === "caretaker" ? ((await listPatients(db, me.id))[0] ?? null) : await findCaretaker(db, me.id);
     if (!partner) throw fail(404, "No linked user");
     return c.json(toApi(partner));
+  })
+
+  /** A caretaker's patients, earliest-linked first. */
+  .get("/patients", async (c) => {
+    const me = c.get("user");
+    if (me.role !== "caretaker") throw fail(403, "Caretakers only");
+    const patients = await listPatients(db, me.id);
+    return c.json({ patients: patients.map(toApi) });
   })
 
   /** Link yourself to your patient/caretaker by their email. */
@@ -109,28 +116,34 @@ export const me = new Hono<Env>()
     if (partner.role === me.role) throw fail(400, `Both users are ${me.role}s`);
 
     const [patient, caretaker] = me.role === "patient" ? [me, partner] : [partner, me];
-    try {
-      const [link] = await db
-        .insert(careLinks)
-        .values({ patientId: patient.id, caretakerId: caretaker.id })
-        .returning();
-      return c.json(
-        { patient_id: link.patientId, caretaker_id: link.caretakerId, created_at: link.createdAt },
-        201,
-      );
-    } catch (e) {
-      if (isUniqueViolation(e)) throw fail(409, "That patient or caretaker is already linked");
-      throw e;
+    const result = await createLink(db, patient.id, caretaker.id);
+    if (!result.ok) {
+      if (result.reason === "not_found") throw fail(404, "No user with that email");
+      throw result.reason === "caretaker_full"
+        ? fail(409, `That caretaker already has ${MAX_PATIENTS_PER_CARETAKER} patients`)
+        : fail(409, "That patient already has a caretaker");
     }
+    const { link } = result;
+    return c.json(
+      { patient_id: link.patientId, caretaker_id: link.caretakerId, created_at: link.createdAt },
+      201,
+    );
   })
 
-  /** Unpair yourself from your patient/caretaker. */
+  /**
+   * Unpair. A patient removes their one link. A caretaker passes ?patient_id=,
+   * which may be left out only when they have exactly one patient.
+   */
   .delete("/link", async (c) => {
-    const id = c.get("user").id;
-    const deleted = await db
-      .delete(careLinks)
-      .where(or(eq(careLinks.patientId, id), eq(careLinks.caretakerId, id)))
-      .returning();
-    if (deleted.length === 0) throw fail(404, "No link for that user");
+    const me = c.get("user");
+    const result =
+      me.role === "caretaker"
+        ? await unlinkAsCaretaker(db, me.id, c.req.query("patient_id")?.trim() || undefined)
+        : await unlinkAsPatient(db, me.id);
+    if (!result.ok) {
+      throw result.reason === "patient_id_required"
+        ? fail(400, "patient_id is required")
+        : fail(404, "No link for that user");
+    }
     return c.body(null, 204);
   });

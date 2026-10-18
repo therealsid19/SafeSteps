@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Detection models (large; copy from the detect repo with `bun run copy-models`)
+assets/models/*.onnx

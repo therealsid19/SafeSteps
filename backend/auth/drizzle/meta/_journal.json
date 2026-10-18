@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1792243981488,
-      "tag": "0000_outstanding_khan",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1792305485132,
-      "tag": "0001_sad_wallop",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1792308216807,
-      "tag": "0002_uneven_betty_ross",
+      "when": 1792313043379,
+      "tag": "0000_deep_sally_floyd",
       "breakpoints": true
     }
   ]

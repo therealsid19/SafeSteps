@@ -17,6 +17,7 @@
     "expo-crypto": "~57.0.4",
     "expo-dev-client": "~57.0.20",
     "expo-font": "~57.0.4",
+    "expo-image-manipulator": "~57.0.21",
     "expo-linking": "~57.0.13",
     "expo-location": "~57.0.21",
     "expo-network": "~57.0.2",
@@ -26,25 +27,37 @@
     "expo-speech-recognition": "~57.1.1",
     "expo-status-bar": "~57.0.1",
     "expo-web-browser": "~57.0.3",
+    "jpeg-js": "^0.4.4",
     "lucide-react-native": "^1.58.0",
+    "onnxruntime-react-native": "^1.24.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-maps": "1.27.2",
+    "react-native-nitro-image": "^0.15.2",
+    "react-native-nitro-modules": "^0.37.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-web": "^0.21.4"
+    "react-native-vision-camera": "^5.2.3",
+    "react-native-vision-camera-resizer": "^5.2.3",
+    "react-native-vision-camera-worklets": "^5.2.3",
+    "react-native-web": "^0.21.4",
+    "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.4",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "copy-models": "mkdir -p assets/models && cp ../../detect/models/depth.onnx ../../detect/models/yoloe.onnx assets/models/",
+    "lint": "expo lint"
   },
   "private": true
 }

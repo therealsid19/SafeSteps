@@ -1,5 +1,5 @@
 {
-  "id": "f9ec7dc7-b924-4d4f-befd-fba83566d927",
+  "id": "2c857803-dbc3-4366-8309-9dc5ad6f834f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -28,7 +28,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "care_links_caretaker_id_idx": {
+          "name": "care_links_caretaker_id_idx",
+          "columns": [
+            {
+              "expression": "caretaker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "care_links_patient_id_user_id_fk": {
           "name": "care_links_patient_id_user_id_fk",
@@ -72,13 +88,6 @@
           "nullsNotDistinct": false,
           "columns": [
             "patient_id"
-          ]
-        },
-        "care_links_caretaker_id_unique": {
-          "name": "care_links_caretaker_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "caretaker_id"
           ]
         }
       },

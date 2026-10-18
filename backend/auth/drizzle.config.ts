@@ -17,5 +17,7 @@ export default defineConfig({
     "verification",
     "care_links",
     "patient_location",
+    "push_tokens",
+    "fall_incidents",
   ],
 });

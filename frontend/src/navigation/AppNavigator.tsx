@@ -1,5 +1,9 @@
 import React from "react";
-import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useProfile } from "../context/ProfileContext";
@@ -24,23 +28,24 @@ import type { RootStackParamList, TabParamList } from "../types/navigation";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
-
 function MainTabs() {
   const { profile } = useProfile();
   return (
-    <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
+    <Tab.Navigator
+      tabBar={(props) => <TabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="People" component={PeopleScreen} />
 
       {profile?.role === "caretaker" && (
         <Tab.Screen name="Map" component={MapScreen} />
       )}
-      
+
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
-
 
 function FallDetectionListener() {
   const navigation =
@@ -60,9 +65,8 @@ function FallDetectionListener() {
 
   React.useEffect(() => {
     const unsubscribe = navigation.addListener("state", () => {
-      const currentRoute = navigation.getState()?.routes[
-        navigation.getState().index
-      ];
+      const currentRoute =
+        navigation.getState()?.routes[navigation.getState().index];
 
       if (currentRoute?.name !== "FallAlert") {
         alertActiveRef.current = false;
@@ -74,7 +78,6 @@ function FallDetectionListener() {
 
   return null;
 }
-
 
 export default function AppNavigator() {
   const { scheme, colors } = useTheme();
@@ -90,7 +93,6 @@ export default function AppNavigator() {
       primary: colors.accent,
     },
   };
-  
 
   return (
     <NavigationContainer theme={navTheme}>
@@ -105,9 +107,21 @@ export default function AppNavigator() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
-        <Stack.Screen name="Listening" component={ListeningScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Camera" component={CameraScreen} options={{ headerShown: false }} />
+        <Stack.Screen
+          name="MainTabs"
+          component={MainTabs}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Listening"
+          component={ListeningScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Camera"
+          component={CameraScreen}
+          options={{ headerShown: false }}
+        />
         <Stack.Screen
           name="FallAlert"
           component={FallAlertScreen}
