@@ -37,10 +37,20 @@ export function crop(g: Grid, x1: number, y1: number, x2: number, y2: number): G
   return { data, w, h };
 }
 
+/** Sorting is the slow part of percentile(). Big areas are sampled down to this many values first;
+ *  the answer is practically the same (it's a statistic), but much faster on the phone. */
+const MAX_SAMPLES = 4096;
+
 /** np.percentile with linear interpolation. NaN for an empty input. */
 export function percentile(values: Float32Array, q: number): number {
   if (values.length === 0) return NaN;
-  const sorted = Float32Array.from(values).sort();
+  let src = values;
+  if (values.length > MAX_SAMPLES) {
+    const step = values.length / MAX_SAMPLES; // take every n-th value, spread evenly
+    src = new Float32Array(MAX_SAMPLES);
+    for (let i = 0; i < MAX_SAMPLES; i++) src[i] = values[Math.floor(i * step)]!;
+  }
+  const sorted = Float32Array.from(src).sort();
   const pos = (q / 100) * (sorted.length - 1);
   const lo = Math.floor(pos), hi = Math.ceil(pos);
   return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (pos - lo);

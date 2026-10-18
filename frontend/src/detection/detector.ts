@@ -1,17 +1,12 @@
-// Runs the two ONNX models on-device. Port of the detect repo's src/camera.ts
-// (onnxruntime-node -> onnxruntime-react-native, ffmpeg frames -> camera snapshots).
+// Runs the two ONNX models on-device. Port of the detect repo's src/camera.ts.
+// Input now comes from VisionCamera's GPU resizer: a ready-made 320x320 RGB picture
+// (planar = all red, then all green, then all blue), letterboxed ("contain") with bars on the sides.
+import { Platform } from "react-native";
 import { Asset } from "expo-asset";
 import { InferenceSession, Tensor } from "onnxruntime-react-native";
 
 import * as config from "./config";
 import { analyze, readBoxes, type Grid, type Info, type Rect } from "./vision";
-
-/** An RGBA frame. */
-export interface Frame {
-  data: Uint8Array;
-  w: number;
-  h: number;
-}
 
 const NAMES = config.CLASSES;
 
@@ -19,13 +14,22 @@ const DET_CONF = 0.25; // ultralytics' default predict threshold (MIN_CONF decid
 const DET_IOU = 0.7;
 const MAX_DET = 300;
 
-let loggedDims = false;
-
-async function loadModel(module: number) {
+/** Load one model. Uses the phone's AI hardware (CoreML / NNAPI) when it can, else the CPU. */
+async function loadModel(module: number, label: string) {
   const [asset] = await Asset.loadAsync(module);
   const uri = asset?.localUri;
   if (!uri) throw new Error("Could not load the detection model.");
-  return InferenceSession.create(uri.replace(/^file:\/\//, ""));
+  const path = uri.replace(/^file:\/\//, "");
+
+  const fast = Platform.OS === "ios" ? "coreml" : "nnapi";
+  try {
+    const session = await InferenceSession.create(path, { executionProviders: [fast, "cpu"] });
+    console.log(`${label} model: ${fast} (+cpu fallback)`);
+    return session;
+  } catch (e) {
+    console.warn(`${label} model: ${fast} not available, using cpu only`, e);
+    return InferenceSession.create(path);
+  }
 }
 
 let models: Promise<{ depthModel: InferenceSession; detector: InferenceSession }> | null = null;
@@ -33,62 +37,61 @@ let models: Promise<{ depthModel: InferenceSession; detector: InferenceSession }
 /** Load both models once; later calls reuse them. */
 export function loadModels() {
   models ??= Promise.all([
-    loadModel(require("../../assets/models/depth.onnx")),
-    loadModel(require("../../assets/models/yoloe.onnx")),
+    loadModel(require("../../assets/models/depth.onnx"), "depth"),
+    loadModel(require("../../assets/models/yoloe.onnx"), "detector"),
   ]).then(([depthModel, detector]) => ({ depthModel, detector }));
   models.catch(() => (models = null)); // allow a retry
   return models;
 }
 
-/** Sample `src` (RGBA) into a 1x3xSxS float tensor: dst pixel (x, y) reads src at (x*sx + ox, y*sy + oy).
- *  Pixels that land outside the frame get the letterbox gray (114). */
-function toTensor(src: Frame, sx: number, sy: number, ox: number, oy: number): Tensor {
+/** Where the real picture sits inside the SxS letterboxed input (the rest is bars). */
+interface Content {
+  padX: number;
+  padY: number;
+  w: number;
+  h: number;
+}
+
+/** The resizer fits the camera frame inside SxS without stretching. Work out where it landed.
+ *  The app is portrait-only, so the picture is taller than wide (short side = width). */
+export function contentArea(frameW: number, frameH: number): Content {
   const S = config.IMG_SIZE;
-  const out = new Float32Array(3 * S * S);
-  for (let y = 0; y < S; y++) {
-    const fy = (y + 0.5) * sy + oy - 0.5; // pixel centres, like cv2.resize
-    for (let x = 0; x < S; x++) {
-      const fx = (x + 0.5) * sx + ox - 0.5;
-      const i = y * S + x;
-      if (fx < -0.5 || fy < -0.5 || fx > src.w - 0.5 || fy > src.h - 0.5) {
-        out[i] = out[S * S + i] = out[2 * S * S + i] = 114 / 255;
-        continue;
-      }
-      const x0 = Math.max(0, Math.floor(fx)), y0 = Math.max(0, Math.floor(fy));
-      const x1 = Math.min(src.w - 1, x0 + 1), y1 = Math.min(src.h - 1, y0 + 1);
-      const ax = Math.min(1, Math.max(0, fx - x0)), ay = Math.min(1, Math.max(0, fy - y0));
-      for (let c = 0; c < 3; c++) {
-        const p = (yy: number, xx: number) => src.data[(yy * src.w + xx) * 4 + c]!;
-        const top = p(y0, x0) * (1 - ax) + p(y0, x1) * ax;
-        const bot = p(y1, x0) * (1 - ax) + p(y1, x1) * ax;
-        out[c * S * S + i] = (top * (1 - ay) + bot * ay) / 255;
+  const fw = Math.min(frameW, frameH), fh = Math.max(frameW, frameH); // portrait
+  const r = Math.min(S / fw, S / fh);
+  const w = Math.round(fw * r), h = Math.round(fh * r);
+  return { padX: Math.floor((S - w) / 2), padY: Math.floor((S - h) / 2), w, h };
+}
+
+/** uint8 planar RGB from the resizer -> float 0..1 tensor. Bars become ultralytics' gray (114). */
+function toTensor(pixels: Uint8Array, c: Content): Tensor {
+  const S = config.IMG_SIZE;
+  const SS = S * S;
+  const out = new Float32Array(3 * SS);
+  const gray = 114 / 255;
+  for (let ch = 0; ch < 3; ch++) {
+    for (let y = 0; y < S; y++) {
+      const inside = y >= c.padY && y < c.padY + c.h;
+      for (let x = 0; x < S; x++) {
+        const i = ch * SS + y * S + x;
+        out[i] = inside && x >= c.padX && x < c.padX + c.w ? pixels[i]! / 255 : gray;
       }
     }
   }
   return new Tensor("float32", out, [1, 3, S, S]);
 }
 
-/** Depth model: frame stretched to SxS, output upsampled back (align_corners) and scaled to metres. */
-async function runDepth(depthModel: InferenceSession, frame: Frame): Promise<Grid> {
+/** Depth model -> grid of metres covering only the real picture (bars cut off). */
+async function runDepth(depthModel: InferenceSession, input: Tensor, c: Content): Promise<Grid> {
   const S = config.IMG_SIZE;
-  const input = toTensor(frame, frame.w / S, frame.h / S, 0, 0);
   const result = await depthModel.run({ [depthModel.inputNames[0]!]: input });
   const raw = result[depthModel.outputNames[0]!]!.data as Float32Array; // 1x1xSxS
-
-  const { w, h } = frame;
-  const data = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const fy = h > 1 ? (y * (S - 1)) / (h - 1) : 0;
-    const y0 = Math.floor(fy), y1 = Math.min(S - 1, y0 + 1), ay = fy - y0;
-    for (let x = 0; x < w; x++) {
-      const fx = w > 1 ? (x * (S - 1)) / (w - 1) : 0;
-      const x0 = Math.floor(fx), x1 = Math.min(S - 1, x0 + 1), ax = fx - x0;
-      const top = raw[y0 * S + x0]! * (1 - ax) + raw[y0 * S + x1]! * ax;
-      const bot = raw[y1 * S + x0]! * (1 - ax) + raw[y1 * S + x1]! * ax;
-      data[y * w + x] = (top * (1 - ay) + bot * ay) * config.SCALE;
+  const data = new Float32Array(c.w * c.h);
+  for (let y = 0; y < c.h; y++) {
+    for (let x = 0; x < c.w; x++) {
+      data[y * c.w + x] = raw[(y + c.padY) * S + (x + c.padX)]! * config.SCALE;
     }
   }
-  return { data, w, h };
+  return { data, w: c.w, h: c.h };
 }
 
 function iou(a: Rect, b: Rect) {
@@ -99,20 +102,10 @@ function iou(a: Rect, b: Rect) {
   return union > 0 ? inter / union : 0;
 }
 
-/** Detector: frame letterboxed into SxS, output (1, 4 + classes + extra, anchors) -> boxes in frame pixels. */
-async function runDetector(detector: InferenceSession, frame: Frame) {
-  const S = config.IMG_SIZE;
-  const r = Math.min(S / frame.w, S / frame.h);
-  const padX = Math.round((S - Math.round(frame.w * r)) / 2 - 0.1);
-  const padY = Math.round((S - Math.round(frame.h * r)) / 2 - 0.1);
-  const input = toTensor(frame, 1 / r, 1 / r, -padX / r, -padY / r);
-
+/** Detector output (1, 4 + classes + extra, anchors) -> boxes in the same coordinates as the depth grid. */
+async function runDetector(detector: InferenceSession, input: Tensor, c: Content) {
   const result = await detector.run({ [detector.inputNames[0]!]: input });
   const out = result[detector.outputNames[0]!]!;
-    if (!loggedDims) {
-    console.log("detector output dims:", out.dims); // [1, 300, 6] = end-to-end format!
-    loggedDims = true;
-  }
   const [, rows, n] = out.dims as number[];
   const pred = out.data as Float32Array;
   const at = (row: number, j: number) => pred[row * n! + j]!;
@@ -121,8 +114,8 @@ async function runDetector(detector: InferenceSession, frame: Frame) {
   const found: { box: Rect; cls: number; conf: number }[] = [];
   for (let j = 0; j < n!; j++) {
     let cls = 0, conf = -1;
-    for (let c = 0; c < NAMES.length && 4 + c < rows!; c++) {
-      if (at(4 + c, j) > conf) { conf = at(4 + c, j); cls = c; }
+    for (let k = 0; k < NAMES.length && 4 + k < rows!; k++) {
+      if (at(4 + k, j) > conf) { conf = at(4 + k, j); cls = k; }
     }
     if (conf <= DET_CONF) continue;
     const cx = at(0, j), cy = at(1, j), bw = at(2, j), bh = at(3, j);
@@ -135,27 +128,28 @@ async function runDetector(detector: InferenceSession, frame: Frame) {
     if (kept.every((k) => k.cls !== d.cls || iou(k.box, d.box) <= DET_IOU)) kept.push(d);
   }
 
-  // back to frame pixels
+  // model pixels -> depth-grid pixels (just remove the bars; same scale)
   const clip = (v: number, max: number) => Math.min(Math.max(v, 0), max);
   for (const d of kept) {
     const [x1, y1, x2, y2] = d.box;
-    d.box = [clip((x1 - padX) / r, frame.w), clip((y1 - padY) / r, frame.h),
-      clip((x2 - padX) / r, frame.w), clip((y2 - padY) / r, frame.h)];
+    d.box = [clip(x1 - c.padX, c.w), clip(y1 - c.padY, c.h), clip(x2 - c.padX, c.w), clip(y2 - c.padY, c.h)];
   }
   return kept;
 }
 
-/** Run both AI models on one frame. Returns everything the app needs. */
-/** Run both AI models on one frame. Returns everything the app needs. */
-export async function look(frame: Frame): Promise<Info> {
+/** Run both AI models on one resized camera frame. Returns everything the app needs.
+ *  pixels: 320x320 uint8 planar RGB from the resizer; frameW/H: the camera frame's size (for the bars). */
+export async function look(pixels: Uint8Array, frameW: number, frameH: number): Promise<Info> {
   const { depthModel, detector } = await loadModels();
+  const c = contentArea(frameW, frameH);
   const t0 = performance.now();
-  const depth = await runDepth(depthModel, frame);
+  const input = toTensor(pixels, c);
   const t1 = performance.now();
-  const found = await runDetector(detector, frame);
+  const [depth, found] = await Promise.all([runDepth(depthModel, input, c), runDetector(detector, input, c)]);
   const t2 = performance.now();
   const info = analyze(depth, readBoxes(found, NAMES));
   const t3 = performance.now();
-  console.log(`depth ${(t1 - t0).toFixed(0)}ms | detector ${(t2 - t1).toFixed(0)}ms | analyze ${(t3 - t2).toFixed(0)}ms`);
+  // TODO: remove this log once timings look good
+  console.log(`prep ${(t1 - t0).toFixed(0)}ms | models ${(t2 - t1).toFixed(0)}ms | analyze ${(t3 - t2).toFixed(0)}ms`);
   return info;
 }

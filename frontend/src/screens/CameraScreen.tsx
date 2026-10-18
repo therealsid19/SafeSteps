@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -10,9 +10,9 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { Camera as CameraPreview, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
 import { Camera, Search, X, ScanSearch, Footprints } from "lucide-react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 
 import { Button } from "../components/Form";
 import { DetectionOverlay } from "../components/DetectionOverlay";
@@ -25,8 +25,9 @@ export default function CameraScreen() {
   const { colors } = useTheme();
   const navigation = useNavigation();
 
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice("back");
+  const isFocused = useIsFocused(); // only run the camera while this screen is visible
   const [cameraReady, setCameraReady] = useState(false);
 
   const [mode, setMode] = useState<DetectionMode>("guide");
@@ -36,15 +37,15 @@ export default function CameraScreen() {
   const target = targetObject.trim().toLowerCase();
   const findable = FINDABLE.includes(target);
   const detecting =
-    !!permission?.granted && cameraReady && (mode === "guide" || (isSearching && findable));
-  const { status, error, info, message } = useDetection(cameraRef, {
+    hasPermission && isFocused && cameraReady && (mode === "guide" || (isSearching && findable));
+  const { frameOutput, status, error, info, message } = useDetection({
     enabled: detecting,
     mode,
     target,
   });
 
-  // Camera permissions are still loading
-  if (!permission) {
+  // Back camera not found yet
+  if (hasPermission && !device) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.text} />
@@ -53,7 +54,7 @@ export default function CameraScreen() {
   }
 
   // Camera permission has not been granted
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <View style={styles.permissionContainer}>
         <View style={styles.permissionIcon}>
@@ -105,13 +106,18 @@ export default function CameraScreen() {
   return (
     <View style={styles.container}>
       {/* Live camera preview */}
-      <CameraView
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        animateShutter={false}
-        onCameraReady={() => setCameraReady(true)}
-      />
+      {device ? (
+        <CameraPreview
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={isFocused}
+          outputs={[frameOutput]}
+          resizeMode="cover"
+          onStarted={() => setCameraReady(true)}
+          onStopped={() => setCameraReady(false)} // e.g. after leaving the screen; detection waits for a restart
+          onError={(e) => console.warn("Camera error", e)}
+        />
+      ) : null}
 
       {detecting && info ? (
         <DetectionOverlay info={info} highlight={mode === "find" ? target : undefined} />
