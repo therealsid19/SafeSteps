@@ -89,3 +89,15 @@ export const LIDAR_NO_READING = 10;  // metres: LiDAR pixels with no reading (to
 export const LIDAR_TURN_TRIES = 10;  // give up the automatic LiDAR orientation check after this many frames
 
 export const SPEECH_RATE = 1.15; // a bit faster than normal: shorter sentences = fresher warnings
+// --- ARKit pipeline (LiDAR iPhones, modules/safestep-ar): same numbers, sent to the native side ---
+export const PATH_WIDTH = 0.7; // metres: the walking path straight ahead
+export const HEAD_TOP = 2.0;   // metres above the floor: ignore anything higher
+export const AR_SETTINGS = {
+  speakRange: SPEAK_RANGE,
+  pathHalfWidth: PATH_WIDTH / 2,
+  sideRange: SIDE_RANGE,
+  floorTol: FLOOR_TOL,
+  lowTop: LOW_TOP,
+  headTop: HEAD_TOP,
+};
+export const AR_CLASSES = { names: COCO_NAMES, important: FINDABLE, minConf: MIN_CONF };

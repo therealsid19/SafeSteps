@@ -17,6 +17,9 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { Button } from "../components/Form";
 import { DetectionOverlay } from "../components/DetectionOverlay";
 import { FINDABLE, useDetection, type DetectionMode } from "../detection/useDetection";
+import { useARDetection } from "../detection/useARDetection";
+import { AR_CLASSES, AR_SETTINGS } from "../detection/config";
+import { arSupported, SafeStepARView } from "../../modules/safestep-ar";
 import { RADIUS, SPACING, TYPE } from "../constants/theme";
 import { makeStyles, useTheme } from "../context/ThemeContext";
 
@@ -33,7 +36,8 @@ export default function CameraScreen() {
   // debug: which camera we got, and whether it has LiDAR
   useEffect(() => {
     if (device) {
-      console.log(`camera: ${device.type} [${device.physicalDevices.map((p) => p.type).join(", ")}] | LiDAR ${hasLidar}`);
+      console.log(`camera: ${device.type} [${device.physicalDevices.map((p) => p.type).join(", ")}] | LiDAR ${hasLidar} | ` +
+        `ARKit pipeline ${arSupported ? "on" : "off"}`);
     }
   }, [device, hasLidar]);
   const isFocused = useIsFocused(); // only run the camera while this screen is visible
@@ -45,14 +49,17 @@ export default function CameraScreen() {
 
   const target = targetObject.trim().toLowerCase();
   const findable = FINDABLE.includes(target);
-  const detecting =
-    hasPermission && isFocused && cameraReady && (mode === "guide" || (isSearching && findable));
-  const { frameOutput, depthOutput, status, error, info, message } = useDetection({
-    enabled: detecting,
-    mode,
-    target,
-    lidar: hasLidar,
-  });
+  // LiDAR iPhones: native ARKit pipeline. Every other phone: camera + AI pipeline.
+  const useAR = SafeStepARView !== null;
+  const wanted = hasPermission && isFocused && (mode === "guide" || (isSearching && findable));
+  const detecting = wanted && (useAR || cameraReady);
+  const ar = useARDetection({ enabled: useAR && detecting, mode, target });
+  const vc = useDetection({ enabled: !useAR && detecting, mode, target, lidar: hasLidar });
+  const { frameOutput, depthOutput, info } = vc;
+  const { status, error, message } = useAR ? ar : vc;
+  const overlay = useAR
+    ? ar.overlay
+    : info && { frame: info.depth, path: info.box, dist: info.dist, boxes: info.boxes };
 
   // Back camera not found yet
   if (hasPermission && !device) {
@@ -116,7 +123,15 @@ export default function CameraScreen() {
   return (
     <View style={styles.container}>
       {/* Live camera preview */}
-      {device ? (
+      {SafeStepARView ? (
+        <SafeStepARView
+          style={StyleSheet.absoluteFill}
+          active={isFocused}
+          settings={AR_SETTINGS}
+          classes={AR_CLASSES}
+          {...ar.handlers}
+        />
+      ) : device ? (
         <CameraPreview
           style={StyleSheet.absoluteFill}
           device={device}
@@ -129,8 +144,8 @@ export default function CameraScreen() {
         />
       ) : null}
 
-      {detecting && info ? (
-        <DetectionOverlay info={info} highlight={mode === "find" ? target : undefined} />
+      {detecting && overlay ? (
+        <DetectionOverlay {...overlay} highlight={mode === "find" ? target : undefined} />
       ) : null}
 
       <SafeAreaView edges={["top"]} style={styles.topOverlay}>

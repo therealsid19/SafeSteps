@@ -57,7 +57,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "copy-models": "mkdir -p assets/models && cp ../../detect/models/depth.onnx ../../detect/models/yoloe.onnx assets/models/",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "copy-coreml": "mkdir -p modules/safestep-ar/ios/models && cp -R ../../detect/models/yolo26n.mlpackage modules/safestep-ar/ios/models/"
   },
   "private": true
 }

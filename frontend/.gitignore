@@ -42,3 +42,7 @@ yarn-error.*
 
 # Detection models (large; copy from the detect repo with `bun run copy-models`)
 assets/models/*.onnx
+
+# CoreML detector for the ARKit module (export: modules/safestep-ar/README.md)
+modules/safestep-ar/ios/models/*.mlpackage
+modules/safestep-ar/ios/models/*.mlmodelc
