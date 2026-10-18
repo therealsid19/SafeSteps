@@ -9,6 +9,7 @@ import {
   fallIncidents,
 } from "../db/schema";
 import { sendEmergencyNotification } from "../services/pushNotifications";
+import { sendFallSms, smsEnabled, toE164 } from "../services/sms";
 
 export const falls = new Hono();
 
@@ -16,11 +17,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Incident = typeof fallIncidents.$inferSelect;
 
+type Patient = { name: string; phoneNumber: string | null };
+
 /**
- * Pushes the incident to the caretaker's newest device and records the outcome.
- * The caller must have claimed the incident (alertStatus "pending").
+ * Alerts the caretaker by text (Twilio) and, if their phone registered for it, push.
+ * "sent" if either got through. The caller must have claimed the incident
+ * (alertStatus "pending"), so this runs once per attempt.
  */
-async function deliver(incident: Incident, patientName: string) {
+async function deliver(incident: Incident, patient: Patient) {
+  const [caretaker] = await db
+    .select({ phoneNumber: user.phoneNumber })
+    .from(user)
+    .where(eq(user.id, incident.caretakerId))
+    .limit(1);
+
   const [device] = await db
     .select({ token: pushTokens.token })
     .from(pushTokens)
@@ -28,51 +38,58 @@ async function deliver(incident: Incident, patientName: string) {
     .orderBy(desc(pushTokens.updatedAt))
     .limit(1);
 
-  const markFailed = () =>
-    db
-      .update(fallIncidents)
-      .set({ alertStatus: "failed" })
-      .where(eq(fallIncidents.id, incident.id));
+  const smsTo = toE164(caretaker?.phoneNumber);
+  const attempts: Promise<unknown>[] = [];
 
-  if (!device) {
-    await markFailed();
-    return {
-      status: 202 as const,
-      body: {
-        incidentId: incident.id,
-        alertStatus: "failed",
-        detail: "Your caregiver hasn't turned on SafeStep alerts on their phone",
-      },
-    };
+  if (smsEnabled() && smsTo) {
+    attempts.push(
+      sendFallSms({
+        to: smsTo,
+        patientName: patient.name,
+        patientPhone: toE164(patient.phoneNumber) ?? patient.phoneNumber,
+        reason: incident.reason,
+      }).then((sid) => console.log(`Fall text sent for incident ${incident.id}: ${sid}`)),
+    );
   }
 
-  try {
-    await sendEmergencyNotification({
-      token: device.token,
-      incidentId: incident.id,
-      patientId: incident.patientId,
-      patientName,
-      detectedAt: incident.detectedAt,
-    });
-  } catch (error) {
-    console.error("Emergency push failed:", error);
-    await markFailed();
-    return {
-      status: 202 as const,
-      body: {
+  if (device) {
+    attempts.push(
+      sendEmergencyNotification({
+        token: device.token,
         incidentId: incident.id,
-        alertStatus: "failed",
-        detail: "Your caregiver's phone could not be reached",
-      },
-    };
+        patientId: incident.patientId,
+        patientName: patient.name,
+        detectedAt: incident.detectedAt,
+      }),
+    );
   }
+
+  const results = await Promise.allSettled(attempts);
+  for (const r of results) {
+    if (r.status === "rejected") console.error(`Fall alert failed for incident ${incident.id}:`, r.reason);
+  }
+  const sent = results.some((r) => r.status === "fulfilled");
 
   await db
     .update(fallIncidents)
-    .set({ alertStatus: "sent" })
+    .set({ alertStatus: sent ? "sent" : "failed" })
     .where(eq(fallIncidents.id, incident.id));
 
-  return { status: 201 as const, body: { incidentId: incident.id, alertStatus: "sent" } };
+  if (sent) {
+    return { status: 201 as const, body: { incidentId: incident.id, alertStatus: "sent" } };
+  }
+
+  let detail = "Your caregiver's phone could not be reached";
+  if (attempts.length === 0) {
+    if (!caretaker?.phoneNumber) detail = "Your caregiver has no phone number in SafeStep";
+    else if (!smsTo) detail = "Your caregiver's phone number is missing its country code";
+    else detail = "Text alerts aren't set up on the SafeStep server";
+  }
+
+  return {
+    status: 202 as const,
+    body: { incidentId: incident.id, alertStatus: "failed", detail },
+  };
 }
 
 /**
@@ -95,6 +112,7 @@ falls.post("/escalate", async (c) => {
     .select({
       name: user.name,
       role: user.role,
+      phoneNumber: user.phoneNumber,
     })
     .from(user)
     .where(eq(user.id, patientId))
@@ -159,7 +177,7 @@ falls.post("/escalate", async (c) => {
     .returning();
 
   if (created) {
-    const result = await deliver(created, patient.name);
+    const result = await deliver(created, patient);
     return c.json(result.body, result.status);
   }
 
@@ -188,7 +206,7 @@ falls.post("/escalate", async (c) => {
       .returning();
 
     if (claimed) {
-      const result = await deliver(claimed, patient.name);
+      const result = await deliver(claimed, patient);
       return c.json(result.body, result.status);
     }
   }
