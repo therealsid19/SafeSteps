@@ -1,5 +1,5 @@
 {
-  "id": "7d28ac88-aef5-45eb-928c-a83ac460d9e9",
+  "id": "f9ec7dc7-b924-4d4f-befd-fba83566d927",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -86,6 +86,113 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.fall_incidents": {
+      "name": "fall_incidents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "caretaker_id": {
+          "name": "caretaker_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detected_at": {
+          "name": "detected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "escalated_at": {
+          "name": "escalated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "reason": {
+          "name": "reason",
+          "type": "fall_reason",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alert_status": {
+          "name": "alert_status",
+          "type": "fall_alert_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "acknowledged_at": {
+          "name": "acknowledged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification": {
+          "name": "verification",
+          "type": "fall_verification",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unverified'"
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "fall_incidents_patient_id_user_id_fk": {
+          "name": "fall_incidents_patient_id_user_id_fk",
+          "tableFrom": "fall_incidents",
+          "tableTo": "user",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fall_incidents_caretaker_id_user_id_fk": {
+          "name": "fall_incidents_caretaker_id_user_id_fk",
+          "tableFrom": "fall_incidents",
+          "tableTo": "user",
+          "columnsFrom": [
+            "caretaker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.patient_location": {
       "name": "patient_location",
       "schema": "",
@@ -153,6 +260,80 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.push_tokens": {
+      "name": "push_tokens",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "push_tokens_user_id_user_id_fk": {
+          "name": "push_tokens_user_id_user_id_fk",
+          "tableFrom": "push_tokens",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "push_tokens_token_unique": {
+          "name": "push_tokens_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -439,6 +620,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "expo_push_token": {
+          "name": "expo_push_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -525,7 +712,47 @@
       "isRLSEnabled": false
     }
   },
-  "enums": {},
+  "enums": {
+    "public.fall_alert_status": {
+      "name": "fall_alert_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "sent",
+        "acknowledged",
+        "failed"
+      ]
+    },
+    "public.fall_call_status": {
+      "name": "fall_call_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "initiated",
+        "answered",
+        "failed"
+      ]
+    },
+    "public.fall_reason": {
+      "name": "fall_reason",
+      "schema": "public",
+      "values": [
+        "timeout",
+        "help",
+        "voice_error"
+      ]
+    },
+    "public.fall_verification": {
+      "name": "fall_verification",
+      "schema": "public",
+      "values": [
+        "unverified",
+        "confirmed",
+        "false_alarm",
+        "unable_to_verify"
+      ]
+    }
+  },
   "schemas": {},
   "sequences": {},
   "roles": {},

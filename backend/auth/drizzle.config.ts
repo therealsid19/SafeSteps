@@ -10,5 +10,14 @@ export default defineConfig({
   // Only manage our own tables. Tiger installs extensions (pg_stat_statements,
   // pg_buffercache, timescaledb) into `public`, and push would try to drop their views.
   // Add new tables here when you add them to src/db/schema.ts.
-  tablesFilter: ["user", "session", "account", "verification", "care_links"],
+  tablesFilter: [
+    "user",
+    "session",
+    "account",
+    "verification",
+    "care_links",
+    "patient_location",
+    "push_tokens",
+    "fall_incidents",
+  ],
 });

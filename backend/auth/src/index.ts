@@ -7,6 +7,8 @@ import { auth } from "./auth";
 import { env } from "./config/env";
 import { me } from "./routes/me";
 import { location } from "./routes/location";
+import { notifications } from "./routes/notifications";
+import { falls } from "./routes/falls";
 
 const app = new Hono();
 
@@ -38,6 +40,8 @@ app.on(["GET", "POST"], "/api/auth/*", (c) =>
 // Application routes
 app.route("/me", me);
 app.route("/location", location);
+app.route("/notifications", notifications);
+app.route("/falls", falls);
 
 app.get("/", (c) => c.text("SafeStep API"));
 
