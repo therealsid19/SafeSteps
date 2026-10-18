@@ -11,6 +11,7 @@
     "better-auth": "^1.7.10",
     "expo": "^57.0.0",
     "expo-asset": "~57.0.20",
+    "expo-audio": "~57.0.5",
     "expo-auth-session": "~57.0.16",
     "expo-camera": "~57.0.6",
     "expo-constants": "~57.0.22",
