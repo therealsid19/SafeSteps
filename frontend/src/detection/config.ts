@@ -4,7 +4,7 @@
 
 export const IMG_SIZE = 320;
 
-export const SCALE = 0.53;
+export const SCALE = 0.53; // AI depth model only (LiDAR measures real metres). TODO: re-measure on the iPhone
 export const BOX_W = 0.5;
 export const BOX_H = 0.5;
 
@@ -38,7 +38,14 @@ export const FLOOR_TOL = 0.15; // meters: within ±n cm of 0 counts as floor
 export const LOW_TOP = 1.0; // meters: low obstacles are between FLOOR_TOL and this height
 export const LOW_MIN = 0.03; // at least 3% of the path area must be hazard pixels to count
 
+// --- Drop-offs (stricter: a false "drop-off" is very scary for the user) ---
+export const DROP_MIN = 0.08;   // at least 8% of the path must look sunken (low obstacles only need 3%)
+export const DROP_SKIP = 0.10;  // ignore the bottom 10% of the picture: depth there (floor at your feet) is unreliable
+export const DROP_FRAMES = 3;   // only warn after this many frames in a row see the drop-off
+
 export const SIDE_REPEAT = 10.0; // seconds: remind about the same side walls at most this often
 
 // --- Camera frames ---
-export const FRAME_W = 240; // photos are resized to this width before analysis (height keeps aspect)
+// --- LiDAR (iPhone Pro) ---
+export const LIDAR_MAX_AGE_MS = 300; // use a LiDAR depth frame only if it's at most this old, else fall back to the AI model
+export const LIDAR_NO_READING = 10;  // metres: LiDAR pixels with no reading (too far / no return) count as far away

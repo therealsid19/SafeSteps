@@ -23,6 +23,9 @@ export interface Info {
   right: string | null;
   heights: Grid;
   depth: Grid;
+  drop: number | null; // drop-off distance seen in THIS frame (useDetection confirms it over several frames)
+  floorNear: number;   // debug: median height of the floor area near the bottom of the path (should be ~0 m)
+  floorMid: number;    // debug: median height of the floor area a bit further ahead (should be ~0 m)
 }
 
 /** grid[y1:y2, x1:x2] like numpy: bounds are clipped, may be empty. */
@@ -133,10 +136,10 @@ export function heightMap(depth: Grid): Grid {
 }
 
 /** If enough of the path matches the mask, return how close it is. Else null. */
-export function findInPath(pathDepth: Grid, mask: Uint8Array): number | null {
+export function findInPath(pathDepth: Grid, mask: Uint8Array, minShare = config.LOW_MIN): number | null {
   let count = 0;
   for (const m of mask) count += m;
-  if (mask.length === 0 || count / mask.length < config.LOW_MIN) return null; // too few pixels -> noise
+  if (mask.length === 0 || count / mask.length < minShare) return null; // too few pixels -> noise
   const hits = new Float32Array(count);
   for (let i = 0, j = 0; i < mask.length; i++) if (mask[i]) hits[j++] = pathDepth.data[i]!;
   return percentile(hits, 10); // closest part of the matching pixels
@@ -162,24 +165,44 @@ export function analyze(depth: Grid, boxes: Box[]): Info {
   // low obstacles and drop-offs in my path: from the top of the green box all the way down
   const pathD = crop(depth, x1, y1, x2, h);
   const pathH = crop(heights, x1, y1, x2, h);
+  const dropRows = Math.floor(pathD.h * (1 - config.DROP_SKIP)); // drop-offs: skip the rows nearest the feet
+
+  // Where the floor SHOULD be in each row (from camera height + tilt). At a drop-off the measured
+  // distance jumps far away, so "is it near?" must use this expected floor distance, not the measurement.
+  const f = (h / 2) / Math.tan(((config.cam.vfov / 2) * Math.PI) / 180);
+  const tilt = (config.cam.tilt * Math.PI) / 180;
+  const floorAt = new Float32Array(pathD.data.length); // expected floor distance per pixel (by row)
+  for (let r = 0; r < pathD.h; r++) {
+    const rel = (y1 + r - h / 2) / f;
+    const down = rel * Math.cos(tilt) + Math.sin(tilt); // how steeply this row looks down
+    const z = down > 0 ? config.cam.height / down : Infinity; // above the horizon: no floor in this row
+    floorAt.fill(z, r * pathD.w, (r + 1) * pathD.w);
+  }
+  const floorGrid: Grid = { data: floorAt, w: pathD.w, h: pathD.h };
+
   const lowMask = new Uint8Array(pathD.data.length);
   const dropMask = new Uint8Array(pathD.data.length);
   for (let i = 0; i < pathD.data.length; i++) {
-    if (!(pathD.data[i]! < config.LOW_RANGE)) continue;
     const ph = pathH.data[i]!;
-    lowMask[i] = ph >= config.FLOOR_TOL && ph < config.LOW_TOP ? 1 : 0;
-    dropMask[i] = ph < -config.FLOOR_TOL ? 1 : 0;
+    if (pathD.data[i]! < config.LOW_RANGE) lowMask[i] = ph >= config.FLOOR_TOL && ph < config.LOW_TOP ? 1 : 0;
+    const row = Math.floor(i / pathD.w);
+    if (row < dropRows && floorAt[i]! < config.LOW_RANGE) dropMask[i] = ph < -config.FLOOR_TOL ? 1 : 0;
   }
   const low = findInPath(pathD, lowMask);
-  const drop = findInPath(pathD, dropMask);
+  // NOT applied here: useDetection confirms it over several frames first.
+  // Distance = where the floor stops (expected floor distance), not how deep the hole is.
+  const drop = findInPath(floorGrid, dropMask, config.DROP_MIN);
 
-  if (drop !== null) { // most dangerous: always wins
-    dist = drop;
-    label = "drop-off";
-  } else if (low !== null && low < dist - 0.3) { // clearly closer than what's in the green box
+  if (low !== null && low < dist - 0.3) { // clearly closer than what's in the green box
     dist = low;
     label = objectInBox(boxes, depth, x1, y1, x2, h) ?? "low obstacle";
   }
 
-  return { dist, label, boxes, box: [x1, y1, x2, y2], edges, left, right, heights, depth };
+  // debug numbers for calibration: on a flat, empty floor both should be close to 0 m
+  const floorBand = (from: number, to: number) =>
+    median(crop(pathH, 0, Math.floor(pathH.h * from), pathH.w, Math.floor(pathH.h * to)).data);
+  const floorNear = floorBand(0.85, 1.0);
+  const floorMid = floorBand(0.6, 0.8);
+
+  return { dist, label, boxes, box: [x1, y1, x2, y2], edges, left, right, heights, depth, drop, floorNear, floorMid };
 }

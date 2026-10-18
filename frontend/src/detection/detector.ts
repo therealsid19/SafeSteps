@@ -137,19 +137,43 @@ async function runDetector(detector: InferenceSession, input: Tensor, c: Content
   return kept;
 }
 
-/** Run both AI models on one resized camera frame. Returns everything the app needs.
- *  pixels: 320x320 uint8 planar RGB from the resizer; frameW/H: the camera frame's size (for the bars). */
-export async function look(pixels: Uint8Array, frameW: number, frameH: number): Promise<Info> {
+/** Stretch a depth grid to w x h (bilinear). LiDAR depth and the camera picture cover the same view. */
+function fitTo(g: Grid, w: number, h: number): Grid {
+  if (g.w === w && g.h === h) return g;
+  const data = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const fy = Math.min(g.h - 1, Math.max(0, ((y + 0.5) * g.h) / h - 0.5));
+    const y0 = Math.floor(fy), y1 = Math.min(g.h - 1, y0 + 1), ay = fy - y0;
+    for (let x = 0; x < w; x++) {
+      const fx = Math.min(g.w - 1, Math.max(0, ((x + 0.5) * g.w) / w - 0.5));
+      const x0 = Math.floor(fx), x1 = Math.min(g.w - 1, x0 + 1), ax = fx - x0;
+      const top = g.data[y0 * g.w + x0]! * (1 - ax) + g.data[y0 * g.w + x1]! * ax;
+      const bot = g.data[y1 * g.w + x0]! * (1 - ax) + g.data[y1 * g.w + x1]! * ax;
+      data[y * w + x] = top * (1 - ay) + bot * ay;
+    }
+  }
+  return { data, w, h };
+}
+
+/** Run the AI on one resized camera frame. Returns everything the app needs.
+ *  pixels:   320x320 uint8 planar RGB from the resizer
+ *  frameW/H: the camera frame's size (to know where the side bars are)
+ *  measured: upright LiDAR depth in metres, if this iPhone has LiDAR -> the depth model is skipped */
+export async function look(pixels: Uint8Array, frameW: number, frameH: number, measured?: Grid | null): Promise<Info> {
   const { depthModel, detector } = await loadModels();
   const c = contentArea(frameW, frameH);
   const t0 = performance.now();
   const input = toTensor(pixels, c);
   const t1 = performance.now();
-  const [depth, found] = await Promise.all([runDepth(depthModel, input, c), runDetector(detector, input, c)]);
+  const [depth, found] = await Promise.all([
+    measured ? fitTo(measured, c.w, c.h) : runDepth(depthModel, input, c), // LiDAR: no depth model needed
+    runDetector(detector, input, c),
+  ]);
   const t2 = performance.now();
   const info = analyze(depth, readBoxes(found, NAMES));
   const t3 = performance.now();
   // TODO: remove this log once timings look good
-  console.log(`prep ${(t1 - t0).toFixed(0)}ms | models ${(t2 - t1).toFixed(0)}ms | analyze ${(t3 - t2).toFixed(0)}ms`);
+  console.log(`depth from ${measured ? "LiDAR" : "AI model"} | prep ${(t1 - t0).toFixed(0)}ms | ` +
+    `models ${(t2 - t1).toFixed(0)}ms | analyze ${(t3 - t2).toFixed(0)}ms`);
   return info;
 }

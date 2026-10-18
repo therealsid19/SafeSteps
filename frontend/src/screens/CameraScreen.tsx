@@ -26,7 +26,10 @@ export default function CameraScreen() {
   const navigation = useNavigation();
 
   const { hasPermission, requestPermission } = useCameraPermission();
-  const device = useCameraDevice("back");
+  // prefer the LiDAR camera (iPhone Pro): wide camera + laser depth. Other phones get their normal back camera.
+  const device = useCameraDevice("back", { physicalDevices: ["lidar-depth"] });
+  const hasLidar =
+    !!device && (device.type === "lidar-depth" || device.physicalDevices.some((p) => p.type === "lidar-depth"));
   const isFocused = useIsFocused(); // only run the camera while this screen is visible
   const [cameraReady, setCameraReady] = useState(false);
 
@@ -38,10 +41,11 @@ export default function CameraScreen() {
   const findable = FINDABLE.includes(target);
   const detecting =
     hasPermission && isFocused && cameraReady && (mode === "guide" || (isSearching && findable));
-  const { frameOutput, status, error, info, message } = useDetection({
+  const { frameOutput, depthOutput, status, error, info, message } = useDetection({
     enabled: detecting,
     mode,
     target,
+    lidar: hasLidar,
   });
 
   // Back camera not found yet
@@ -111,7 +115,7 @@ export default function CameraScreen() {
           style={StyleSheet.absoluteFill}
           device={device}
           isActive={isFocused}
-          outputs={[frameOutput]}
+          outputs={hasLidar ? [frameOutput, depthOutput] : [frameOutput]}
           resizeMode="cover"
           onStarted={() => setCameraReady(true)}
           onStopped={() => setCameraReady(false)} // e.g. after leaving the screen; detection waits for a restart

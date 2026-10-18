@@ -4,14 +4,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeviceMotion } from "expo-sensors";
 import * as Speech from "expo-speech";
-import { CommonResolutions, useFrameOutput } from "react-native-vision-camera";
+import { CommonResolutions, useDepthOutput, useFrameOutput, type CameraOrientation, type Depth } from "react-native-vision-camera";
 import { useResizer, type GPUFrame } from "react-native-vision-camera-resizer";
 import { scheduleOnRN } from "react-native-worklets";
 
 import * as config from "./config";
 import { loadModels, look } from "./detector";
 import { Announcer } from "./rules";
-import { crop, median, type Box, type Info } from "./vision";
+import { crop, median, type Box, type Grid, type Info } from "./vision";
 
 export type DetectionMode = "guide" | "find";
 export type DetectionStatus = "idle" | "loading" | "running" | "error";
@@ -40,6 +40,26 @@ function describeTarget(info: Info, target: string): { where: string; dist: numb
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** LiDAR depth arrives in the sensor's own orientation. Turn it upright (portrait) and replace
+ *  "no reading" pixels (0 / NaN: too far, or no laser return) with a far distance. */
+function uprightDepth(raw: Float32Array, w: number, h: number, stride: number, orientation: CameraOrientation): Grid {
+  const turned = orientation === "left" || orientation === "right";
+  const uw = turned ? h : w, uh = turned ? w : h; // upright size
+  const data = new Float32Array(uw * uh);
+  for (let uy = 0; uy < uh; uy++) {
+    for (let ux = 0; ux < uw; ux++) {
+      // where this upright pixel sits in the raw (rotated) data
+      let rx = ux, ry = uy;
+      if (orientation === "right") { rx = uh - 1 - uy; ry = ux; } // raw = upright turned 90° clockwise
+      else if (orientation === "left") { rx = uy; ry = uw - 1 - ux; } // raw = upright turned 90° counter-clockwise
+      else if (orientation === "down") { rx = uw - 1 - ux; ry = uh - 1 - uy; }
+      const v = raw[ry * stride + rx]!;
+      data[uy * uw + ux] = v > 0 && Number.isFinite(v) ? v : config.LIDAR_NO_READING;
+    }
+  }
+  return { data, w: uw, h: uh };
+}
+
 /**
  * Runs object + obstacle detection on the camera while `enabled`.
  * guide: speaks obstacle warnings (what's ahead, walls, drop-offs).
@@ -47,7 +67,17 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  *
  * Returns `frameOutput`: pass it to <Camera outputs={[frameOutput]} />.
  */
-export function useDetection({ enabled, mode, target }: { enabled: boolean; mode: DetectionMode; target: string }) {
+export function useDetection({
+  enabled,
+  mode,
+  target,
+  lidar = false,
+}: {
+  enabled: boolean;
+  mode: DetectionMode;
+  target: string;
+  lidar?: boolean; // this camera has LiDAR: attach `depthOutput` to the <Camera> too
+}) {
   // model loading: only changed inside the loadModels() callbacks below
   const [models, setModels] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +102,12 @@ export function useDetection({ enabled, mode, target }: { enabled: boolean; mode
   const announcer = useRef(new Announcer());
   const lastFind = useRef({ text: "", time: 0 });
   const prev = useRef(0);
+  const dropStreak = useRef(0); // how many frames in a row have seen a drop-off
+  const latestLidar = useRef<{ grid: Grid; time: number } | null>(null); // newest LiDAR depth frame
+  const lidarRef = useRef(lidar);
+  useEffect(() => {
+    lidarRef.current = lidar;
+  }, [lidar]);
 
   // phone tilt -> camera tilt for the height math (portrait: beta = 90° when upright)
   useEffect(() => {
@@ -89,6 +125,7 @@ export function useDetection({ enabled, mode, target }: { enabled: boolean; mode
     let alive = true;
     announcer.current = new Announcer();
     lastFind.current = { text: "", time: 0 };
+    dropStreak.current = 0;
     ready.current = false;
     loadModels()
       .then(() => {
@@ -125,8 +162,23 @@ export function useDetection({ enabled, mode, target }: { enabled: boolean; mode
       if (!enabledRef.current || !ready.current || busy.current) return; // AI still busy: skip this frame
       busy.current = true;
       try {
-        const result = await look(pixels, frameW, frameH);
+        // use LiDAR depth if we have a fresh frame; otherwise the AI depth model runs instead
+        const l = latestLidar.current;
+        const measured =
+          lidarRef.current && l && performance.now() - l.time < config.LIDAR_MAX_AGE_MS ? l.grid : null;
+        const seen = await look(pixels, frameW, frameH, measured);
         if (!enabledRef.current) return;
+
+        // a drop-off only counts once several frames in a row agree (one noisy frame shouldn't scare the user)
+        dropStreak.current = seen.drop !== null ? dropStreak.current + 1 : 0;
+        const result: Info =
+          dropStreak.current >= config.DROP_FRAMES ? { ...seen, dist: seen.drop!, label: "drop-off" } : seen;
+
+        // TODO: remove once calibrated. On a flat empty floor, floorNear/floorMid should be close to 0 m.
+        console.log(
+          `tilt ${config.cam.tilt.toFixed(0)}° | ${result.label ?? "object"} ${result.dist.toFixed(2)} m | ` +
+            `floor near ${seen.floorNear.toFixed(2)} mid ${seen.floorMid.toFixed(2)} | drop ${seen.drop?.toFixed(2) ?? "-"} x${dropStreak.current}`,
+        );
 
         const now = performance.now();
         if (modeRef.current === "guide") {
@@ -156,6 +208,46 @@ export function useDetection({ enabled, mode, target }: { enabled: boolean; mode
     },
     [say],
   );
+
+  /** Runs on the JS thread for each LiDAR depth frame the worklet sends over: keep the newest one. */
+  const onLidar = useCallback(
+    (raw: Float32Array, w: number, h: number, stride: number, orientation: CameraOrientation) => {
+      if (!latestLidar.current) console.log(`LiDAR depth: ${w}x${h}, orientation "${orientation}"`); // once
+      latestLidar.current = { grid: uprightDepth(raw, w, h, stride, orientation), time: performance.now() };
+    },
+    [],
+  );
+
+  // LiDAR depth (iPhone Pro): real distances in metres, so no depth model and no SCALE guessing
+  const depthOutput = useDepthOutput({
+    enableFiltering: true, // fills small holes in the LiDAR data
+    dropFramesWhileBusy: true,
+    onDepth(depth) {
+      "worklet";
+      const g = globalThis as unknown as { __ssLastDepth?: number };
+      const now = Date.now();
+      if (now - (g.__ssLastDepth ?? 0) < FRAME_INTERVAL_MS) {
+        depth.dispose();
+        return;
+      }
+      g.__ssLastDepth = now;
+
+      let converted: Depth | undefined;
+      try {
+        // "disparity-*" = two-camera estimate, not metres: skip it and let the AI depth model run instead
+        if (!depth.pixelFormat.startsWith("depth-")) return;
+        if (depth.pixelFormat !== "depth-32-bit") converted = depth.convert("depth-32-bit");
+        const d = converted ?? depth;
+        const raw = new Float32Array(d.getDepthData().slice(0)); // copy: the buffer is reused after dispose
+        scheduleOnRN(onLidar, raw, d.width, d.height, d.bytesPerRow / 4, d.orientation);
+      } catch {
+        // ignore: the camera may be closing
+      } finally {
+        converted?.dispose();
+        depth.dispose();
+      }
+    },
+  });
 
   // GPU resize: camera frame -> 320x320 RGB, planar, letterboxed (bars on the sides, no stretching)
   const { resizer } = useResizer({
@@ -201,5 +293,5 @@ export function useDetection({ enabled, mode, target }: { enabled: boolean; mode
   const message = said?.key === `${mode}|${target}` ? said.text : null;
   // status is worked out from other state instead of being stored separately
   const status: DetectionStatus = !enabled ? "idle" : models === "ready" ? "running" : models;
-  return { frameOutput, status, error, info, message, fps };
+  return { frameOutput, depthOutput, status, error, info, message, fps };
 }
