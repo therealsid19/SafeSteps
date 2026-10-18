@@ -1,0 +1,39 @@
+# Local stack: TimescaleDB (same engine as Tiger Data) + the API.
+#   docker compose up --build
+# Secrets come from .env; DATABASE_URL is overridden to point at the db container.
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: safestep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-safestep}
+      POSTGRES_DB: safestep
+      # Subdirectory so Postgres doesn't trip over lost+found on mounted volumes
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safestep -d safestep"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://safestep:${POSTGRES_PASSWORD:-safestep}@db:5432/safestep
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

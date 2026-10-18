@@ -1,0 +1,29 @@
+{
+  "name": "auth",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "auth:generate": "bunx auth@latest generate --config src/auth.ts --output src/db/auth-schema.ts --yes",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.10",
+    "@better-auth/expo": "^1.7.10",
+    "better-auth": "^1.7.10",
+    "dotenv": "^18.0.8",
+    "drizzle-orm": "^0.45.4",
+    "expo-location": "~58.0.17",
+    "hono": "^4.13.13",
+    "postgres": "^3.4.9",
+    "react-native-maps": "1.29.11",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.11"
+  },
+  "type": "module"
+}

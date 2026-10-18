@@ -1,4 +1,25 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# --- secrets (never commit) ---
+.env
+.env.*
+!.env.example
+*credentials*.env
+
+# --- Python / backend ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# --- Node / frontend (frontend/.gitignore has the Expo-specific rules) ---
+node_modules/
+
+# --- editors / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Expo app at repo root (from main) ---
 
 # dependencies
 node_modules/

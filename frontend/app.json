@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "SafeStep",
+    "slug": "SafeStep",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow SafeStep to recognize your voice during a fall safety check.",
+        "NSMicrophoneUsageDescription": "Allow SafeStep to listen for your response after a possible fall."
+      },
+      "bundleIdentifier": "com.jeffreyyu.safestep",
+      "appleTeamId": "YBP8N453TC"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.jeffreyyu.safestep"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-font",
+      "expo-asset",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow SafeStep to listen for your response after a possible fall.",
+          "speechRecognitionPermission": "Allow SafeStep to recognize your voice during a fall safety check."
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Allow SafeStep to detect sudden movements that may indicate a fall."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SafeStep to share your location with your caregivers."
+        }
+      ],
+      "./plugins/withSceneLifecycle"
+    ],
+    "scheme": "safestep"
+  }
+}

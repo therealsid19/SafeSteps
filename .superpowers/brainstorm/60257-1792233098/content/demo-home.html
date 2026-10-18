@@ -1,0 +1,120 @@
+<style>
+  .demo-wrap { display:flex; gap:48px; flex-wrap:wrap; justify-content:center; align-items:flex-start; padding:8px 0 24px; }
+  .col { display:flex; flex-direction:column; align-items:center; gap:14px; max-width:380px; }
+  .col-title { font-weight:700; font-size:15px; letter-spacing:.04em; text-transform:uppercase; opacity:.7; }
+  .note { font-size:13px; line-height:1.5; opacity:.75; text-align:left; }
+  .phone { width:360px; height:760px; border-radius:52px; padding:12px; background:#111; box-shadow:0 30px 60px rgba(0,0,0,.25); }
+  .screen { width:100%; height:100%; border-radius:42px; overflow:hidden; position:relative; font-family:-apple-system, "SF Pro Display", Inter, system-ui, sans-serif; }
+  .status { display:flex; justify-content:space-between; padding:16px 28px 0; font-size:14px; font-weight:600; }
+  .island { position:absolute; top:10px; left:50%; transform:translateX(-50%); width:110px; height:32px; border-radius:20px; background:#000; }
+
+  /* ---------- Patient: high contrast, few huge targets ---------- */
+  .p { background:#0B0B0C; color:#FFF; }
+  .p .body { padding:26px 22px; display:flex; flex-direction:column; gap:14px; height:calc(100% - 40px); box-sizing:border-box; }
+  .p h1 { font-size:34px; line-height:1.1; margin:6px 0 0; font-weight:800; letter-spacing:-.02em; }
+  .p .sub { font-size:18px; color:#C9C9CF; margin:0 0 6px; }
+  .p .ok { display:flex; align-items:center; gap:10px; font-size:17px; font-weight:600; background:#16231B; color:#7CF0A9; padding:12px 16px; border-radius:18px; }
+  .p .ok .dot { width:12px; height:12px; border-radius:50%; background:#7CF0A9; }
+  .big { border-radius:28px; padding:22px; display:flex; align-items:center; gap:18px; font-size:24px; font-weight:800; letter-spacing:-.01em; }
+  .big .ic { width:56px; height:56px; border-radius:18px; display:grid; place-items:center; font-size:28px; flex-shrink:0; }
+  .big small { display:block; font-size:15px; font-weight:500; opacity:.8; margin-top:4px; letter-spacing:0; }
+  .b-find { background:#FFD84D; color:#111; } .b-find .ic { background:rgba(0,0,0,.1); }
+  .b-around { background:#9CC8FF; color:#0B1A2E; } .b-around .ic { background:rgba(0,0,0,.1); }
+  .b-help { background:#FF6B5E; color:#1D0503; } .b-help .ic { background:rgba(0,0,0,.12); }
+  .talk { margin-top:auto; background:#FFF; color:#000; border-radius:999px; padding:22px; text-align:center; font-size:22px; font-weight:800; display:flex; justify-content:center; align-items:center; gap:12px; }
+  .talk-hint { text-align:center; font-size:15px; color:#9A9AA2; margin-top:-4px; }
+
+  /* ---------- Caregiver: warm, soft cards ---------- */
+  .c { background:#F3EEE8; color:#1B1B1F; }
+  .c .body { padding:18px 18px 0; display:flex; flex-direction:column; gap:12px; }
+  .c .top { display:flex; justify-content:space-between; align-items:center; }
+  .c .hello { font-size:14px; color:#7A7470; }
+  .c .name { font-size:24px; font-weight:700; letter-spacing:-.02em; }
+  .c .bell { width:42px; height:42px; border-radius:50%; background:#FFF; display:grid; place-items:center; position:relative; }
+  .c .bell i { position:absolute; top:9px; right:10px; width:8px; height:8px; border-radius:50%; background:#E0634F; }
+  .card { background:#FFF; border-radius:26px; padding:16px; }
+  .who { display:flex; align-items:center; gap:12px; }
+  .av { width:46px; height:46px; border-radius:50%; background:linear-gradient(135deg,#F2B8A2,#D98A72); display:grid; place-items:center; color:#fff; font-weight:700; font-size:18px; }
+  .who b { font-size:17px; } .who .st { font-size:13px; color:#3E8E5E; display:flex; align-items:center; gap:6px; }
+  .who .st:before { content:""; width:8px; height:8px; border-radius:50%; background:#3E8E5E; }
+  .map { margin-top:12px; height:150px; border-radius:18px; position:relative; overflow:hidden;
+         background:
+           linear-gradient(90deg, transparent 47%, #fff 47%, #fff 53%, transparent 53%),
+           linear-gradient(0deg, transparent 40%, #fff 40%, #fff 46%, transparent 46%),
+           linear-gradient(25deg, transparent 62%, #CFE3F5 62%, #CFE3F5 70%, transparent 70%),
+           #E6EEE4; }
+  .pin { position:absolute; left:52%; top:44%; transform:translate(-50%,-50%); width:22px; height:22px; border-radius:50%; background:#2F6FE4; border:4px solid #fff; box-shadow:0 0 0 10px rgba(47,111,228,.18); }
+  .map .where { position:absolute; left:10px; bottom:10px; background:#fff; border-radius:12px; padding:6px 10px; font-size:12px; font-weight:600; }
+  .actions { display:flex; gap:8px; margin-top:12px; }
+  .act { flex:1; text-align:center; padding:12px 0; border-radius:16px; font-weight:600; font-size:14px; }
+  .act.live { background:#1B1B1F; color:#fff; } .act.call { background:#EFE9E2; }
+  .row { display:flex; gap:10px; }
+  .stat { flex:1; border-radius:22px; padding:14px; }
+  .stat .k { font-size:12px; color:#5f5a56; } .stat .v { font-size:26px; font-weight:700; letter-spacing:-.02em; margin-top:6px; }
+  .s1 { background:#CFE3DC; } .s2 { background:#F2DE97; } .s3 { background:#C9CCF5; }
+  .alert-h { display:flex; justify-content:space-between; font-weight:700; font-size:16px; }
+  .alert-h a { font-size:13px; color:#3E8E5E; font-weight:600; }
+  .alert { display:flex; gap:12px; align-items:center; margin-top:12px; }
+  .alert .ai { width:40px; height:40px; border-radius:14px; background:#FBE1DA; display:grid; place-items:center; font-size:18px; }
+  .alert b { font-size:14px; } .alert div div { font-size:12px; color:#7A7470; }
+  .alert .tag { margin-left:auto; font-size:11px; font-weight:600; background:#E5F1E9; color:#3E8E5E; padding:5px 9px; border-radius:999px; }
+  .nav { position:absolute; left:18px; right:18px; bottom:18px; background:#1B1B1F; border-radius:999px; padding:8px; display:flex; justify-content:space-between; align-items:center; }
+  .nav span { color:#9B9792; font-size:18px; width:48px; text-align:center; }
+  .nav .on { background:#fff; color:#1B1B1F; border-radius:999px; padding:10px 16px; width:auto; font-size:14px; font-weight:600; }
+</style>
+
+<h2>Demo: one app, two very different homes</h2>
+<p class="subtitle">Same login. The role picked at sign-up decides which home you land on.</p>
+
+<div class="demo-wrap">
+  <!-- Patient -->
+  <div class="col">
+    <div class="col-title">Patient (low / no vision)</div>
+    <div class="phone"><div class="screen p">
+      <div class="island"></div>
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="body">
+        <h1>Hi Margaret</h1>
+        <p class="sub">What do you need?</p>
+        <div class="ok"><span class="dot"></span>Sam can see you're safe</div>
+        <div class="big b-find"><span class="ic">🔍</span><div>Find something<small>Point your camera</small></div></div>
+        <div class="big b-around"><span class="ic">🧭</span><div>What's around me<small>Hear obstacles &amp; signs</small></div></div>
+        <div class="big b-help"><span class="ic">📞</span><div>Call Sam<small>Your caregiver</small></div></div>
+        <div class="talk">🎙️ Hold to talk</div>
+        <div class="talk-hint">Try "Where are my keys?"</div>
+      </div>
+    </div></div>
+    <p class="note"><b>VoiceOver reads:</b> "Hi Margaret. Sam can see you're safe. Find something, button. What's around me, button. Call Sam, button. Hold to talk, button." That's 5 stops total. Bold colours, 24pt+ text, and every target is at least 80pt tall.</p>
+  </div>
+
+  <!-- Caregiver -->
+  <div class="col">
+    <div class="col-title">Caregiver</div>
+    <div class="phone"><div class="screen c">
+      <div class="island"></div>
+      <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+      <div class="body">
+        <div class="top">
+          <div><div class="hello">Good afternoon</div><div class="name">Sam</div></div>
+          <div class="bell">🔔<i></i></div>
+        </div>
+        <div class="card">
+          <div class="who"><div class="av">M</div><div><b>Margaret</b><div class="st">Walking · safe</div></div></div>
+          <div class="map"><span class="pin"></span><span class="where">📍 Queen St W · 2 min ago</span></div>
+          <div class="actions"><div class="act live">● Live view</div><div class="act call">Call</div></div>
+        </div>
+        <div class="row">
+          <div class="stat s1"><div class="k">Falls this week</div><div class="v">0</div></div>
+          <div class="stat s2"><div class="k">Time outside</div><div class="v">1h 5m</div></div>
+          <div class="stat s3"><div class="k">Battery</div><div class="v">82%</div></div>
+        </div>
+        <div class="card">
+          <div class="alert-h">Recent alerts <a>See all ›</a></div>
+          <div class="alert"><span class="ai">⚠️</span><div><b>Possible fall</b><div>Yesterday · 4:12 pm · Dundas St</div></div><span class="tag">She's OK</span></div>
+        </div>
+      </div>
+      <div class="nav"><span class="on">⌂ Home</span><span>🗺</span><span>🔔</span><span>⚙︎</span></div>
+    </div></div>
+    <p class="note">Warm, soft cards like your mood-app and clinic references. Margaret's status and location come first, then live view and call. Quick numbers sit in a row below, followed by the alert history.</p>
+  </div>
+</div>
