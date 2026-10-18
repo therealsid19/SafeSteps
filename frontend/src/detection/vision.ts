@@ -250,7 +250,9 @@ export function analyze(depth: Grid, boxes: Box[], measured = false): Info {
   const low = findInPath(pathD, lowMask);
   // NOT applied here: useDetection confirms it over several frames first.
   // Distance = where the floor stops (expected floor distance), not how deep the hole is.
-  const drop = findInPath(floorGrid, dropMask, config.DROP_MIN);
+  // Only with LiDAR: the AI depth model's distances are a guess (SCALE), so its "floor" often looks
+  // metres too low = a fake drop-off. A false drop-off is the scariest mistake, so don't guess.
+  const drop = measured ? findInPath(floorGrid, dropMask, config.DROP_MIN) : null;
 
   if (low !== null && low < dist - 0.3) { // clearly closer than what's in the green box
     dist = low;

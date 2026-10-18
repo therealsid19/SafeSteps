@@ -213,15 +213,19 @@ export async function look(pixels: Uint8Array, frameW: number, frameH: number, m
   const t0 = performance.now();
   const input = toTensor(pixels, c);
   const t1 = performance.now();
+  let tDepth = 0, tDet = 0; // each model on its own, to see which one is slow
   const [depth, found] = await Promise.all([
-    measured ? fitTo(measured, c.w, c.h) : runDepth(depthModel, input, c), // LiDAR: no depth model needed
-    runDetector(detector, input, c),
+    measured
+      ? fitTo(measured, c.w, c.h) // LiDAR: no depth model needed
+      : runDepth(depthModel, input, c).then((g) => ((tDepth = performance.now() - t1), g)),
+    runDetector(detector, input, c).then((b) => ((tDet = performance.now() - t1), b)),
   ]);
   const t2 = performance.now();
   const info = analyze(depth, readBoxes(found, NAMES), !!measured);
   const t3 = performance.now();
   // TODO: remove this log once timings look good
   console.log(`depth from ${measured ? "LiDAR" : "AI model"} | prep ${(t1 - t0).toFixed(0)}ms | ` +
-    `models ${(t2 - t1).toFixed(0)}ms | analyze ${(t3 - t2).toFixed(0)}ms`);
+    `models ${(t2 - t1).toFixed(0)}ms (depth ${tDepth.toFixed(0)} / detector ${tDet.toFixed(0)}) | ` +
+    `analyze ${(t3 - t2).toFixed(0)}ms`);
   return info;
 }

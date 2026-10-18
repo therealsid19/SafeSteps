@@ -126,6 +126,7 @@ export function useDetection({
   // which way the LiDAR picture must be turned. Found automatically on the first frames (see checkLidarTurn)
   const lidarTurn = useRef<CameraOrientation | null>(null);
   const turnTries = useRef(0);
+  const lidarWhy = useRef<string | null | undefined>(undefined); // last reason logged for not using LiDAR
   const lidarRef = useRef(lidar);
   useEffect(() => {
     lidarRef.current = lidar;
@@ -214,6 +215,15 @@ export function useDetection({
         // use LiDAR depth if we have a fresh frame (and know which way it's turned); else the AI depth model
         const l = latestLidar.current;
         const fresh = lidarRef.current && l && performance.now() - l.time < config.LIDAR_MAX_AGE_MS ? l : null;
+        // debug: say (once per change) why LiDAR isn't being used
+        const why = !lidarRef.current ? "this camera has no LiDAR"
+          : !l ? "no LiDAR depth frames received yet"
+          : !fresh ? `newest LiDAR frame is ${(performance.now() - l.time).toFixed(0)} ms old`
+          : null;
+        if (why?.split(" ")[0] !== lidarWhy.current?.split(" ")[0]) {
+          console.log(why ? `LiDAR not used: ${why}` : "LiDAR frames arriving");
+          lidarWhy.current = why;
+        }
         if (fresh && !lidarTurn.current) await checkLidarTurn(fresh, pixels, frameW, frameH);
         const measured =
           fresh && lidarTurn.current
@@ -279,13 +289,17 @@ export function useDetection({
     [],
   );
 
+  const logDepthFormat = useCallback((format: string, accuracy: string) => {
+    console.log(`LiDAR not used: depth frames are "${format}" (accuracy "${accuracy}"), not real metres`);
+  }, []);
+
   // LiDAR depth (iPhone Pro): real distances in metres, so no depth model and no SCALE guessing
   const depthOutput = useDepthOutput({
     enableFiltering: true, // fills small holes in the LiDAR data
     dropFramesWhileBusy: true,
     onDepth(depth) {
       "worklet";
-      const g = globalThis as unknown as { __ssLastDepth?: number };
+      const g = globalThis as unknown as { __ssLastDepth?: number; __ssLoggedFormat?: boolean };
       const now = Date.now();
       // twice as often as camera frames, so the depth used with a frame is at most ~50 ms older than it
       if (now - (g.__ssLastDepth ?? 0) < FRAME_INTERVAL_MS / 2) {
@@ -297,7 +311,11 @@ export function useDetection({
       let converted: Depth | undefined;
       try {
         // "disparity-*" = two-camera estimate, not metres: skip it and let the AI depth model run instead
-        if (!depth.pixelFormat.startsWith("depth-")) return;
+        if (!depth.pixelFormat.startsWith("depth-")) {
+          if (!g.__ssLoggedFormat) scheduleOnRN(logDepthFormat, depth.pixelFormat, depth.depthDataAccuracy);
+          g.__ssLoggedFormat = true;
+          return;
+        }
         if (depth.pixelFormat !== "depth-32-bit") converted = depth.convert("depth-32-bit");
         const d = converted ?? depth;
         const raw = new Float32Array(d.getDepthData().slice(0)); // copy: the buffer is reused after dispose

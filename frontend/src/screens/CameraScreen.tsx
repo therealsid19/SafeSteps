@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -30,6 +30,12 @@ export default function CameraScreen() {
   const device = useCameraDevice("back", { physicalDevices: ["lidar-depth"] });
   const hasLidar =
     !!device && (device.type === "lidar-depth" || device.physicalDevices.some((p) => p.type === "lidar-depth"));
+  // debug: which camera we got, and whether it has LiDAR
+  useEffect(() => {
+    if (device) {
+      console.log(`camera: ${device.type} [${device.physicalDevices.map((p) => p.type).join(", ")}] | LiDAR ${hasLidar}`);
+    }
+  }, [device, hasLidar]);
   const isFocused = useIsFocused(); // only run the camera while this screen is visible
   const [cameraReady, setCameraReady] = useState(false);
 
