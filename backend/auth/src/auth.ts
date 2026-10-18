@@ -13,7 +13,18 @@ const PHONE_SCOPE = "https://www.googleapis.com/auth/user.phonenumbers.read";
 
 export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
-  baseURL: env.BETTER_AUTH_URL,
+  // While developing, answer on both BETTER_AUTH_URL (e.g. an ngrok tunnel, for phones) and
+  // localhost (for the web app). The web app must sign in through localhost: to the browser,
+  // localhost:8081 -> ngrok is cross-site, so it drops the sign-in cookies ("state_mismatch").
+  baseURL:
+    env.NODE_ENV === "production"
+      ? env.BETTER_AUTH_URL
+      : {
+          allowedHosts: [new URL(env.BETTER_AUTH_URL).host, `localhost:${env.PORT}`, `127.0.0.1:${env.PORT}`],
+          fallback: env.BETTER_AUTH_URL,
+        },
+  // ngrok forwards https requests to us as http; trust its X-Forwarded-Proto/Host headers
+  advanced: { trustedProxyHeaders: env.NODE_ENV !== "production" },
   database: drizzleAdapter(db, { provider: "pg", schema }),
   plugins: [expo()],
   trustedOrigins: [
