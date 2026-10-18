@@ -19,6 +19,8 @@ const DET_CONF = 0.25; // ultralytics' default predict threshold (MIN_CONF decid
 const DET_IOU = 0.7;
 const MAX_DET = 300;
 
+let loggedDims = false;
+
 async function loadModel(module: number) {
   const [asset] = await Asset.loadAsync(module);
   const uri = asset?.localUri;
@@ -107,6 +109,10 @@ async function runDetector(detector: InferenceSession, frame: Frame) {
 
   const result = await detector.run({ [detector.inputNames[0]!]: input });
   const out = result[detector.outputNames[0]!]!;
+    if (!loggedDims) {
+    console.log("detector output dims:", out.dims); // [1, 300, 6] = end-to-end format!
+    loggedDims = true;
+  }
   const [, rows, n] = out.dims as number[];
   const pred = out.data as Float32Array;
   const at = (row: number, j: number) => pred[row * n! + j]!;
@@ -140,8 +146,16 @@ async function runDetector(detector: InferenceSession, frame: Frame) {
 }
 
 /** Run both AI models on one frame. Returns everything the app needs. */
+/** Run both AI models on one frame. Returns everything the app needs. */
 export async function look(frame: Frame): Promise<Info> {
   const { depthModel, detector } = await loadModels();
-  const [depth, found] = await Promise.all([runDepth(depthModel, frame), runDetector(detector, frame)]);
-  return analyze(depth, readBoxes(found, NAMES));
+  const t0 = performance.now();
+  const depth = await runDepth(depthModel, frame);
+  const t1 = performance.now();
+  const found = await runDetector(detector, frame);
+  const t2 = performance.now();
+  const info = analyze(depth, readBoxes(found, NAMES));
+  const t3 = performance.now();
+  console.log(`depth ${(t1 - t0).toFixed(0)}ms | detector ${(t2 - t1).toFixed(0)}ms | analyze ${(t3 - t2).toFixed(0)}ms`);
+  return info;
 }

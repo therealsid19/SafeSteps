@@ -125,8 +125,10 @@ export function useDetection(
 
         let result: Info;
         try {
-          result = await look(await grabFrame(camera));
-        } catch (e) {
+          const g0 = performance.now();
+          const frame = await grabFrame(camera);
+          console.log(`grab ${(performance.now() - g0).toFixed(0)}ms (${frame.w}x${frame.h})`);
+          result = await look(frame);        } catch (e) {
           console.warn("Detection frame failed", e);
           await new Promise((r) => setTimeout(r, 300));
           continue;
