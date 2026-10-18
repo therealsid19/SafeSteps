@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Linking, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -8,6 +8,8 @@ import { Button } from "../components/Form";
 import { SPACING, TYPE } from "../constants/theme";
 import { useProfile } from "../context/ProfileContext";
 import { makeStyles } from "../context/ThemeContext";
+import { useApi, type User } from "../lib/api";
+import { telUrl } from "../lib/phone";
 import type { RootStackParamList } from "../types/navigation";
 
 /** Opened from a fall push: who fell, when, and a one-tap call. */
@@ -16,11 +18,24 @@ export default function CaretakerAlertScreen() {
   const navigation = useNavigation();
   const { params } = useRoute<RouteProp<RootStackParamList, "CaretakerAlert">>();
   const { partner } = useProfile();
+  const api = useApi();
 
-  // The push only carries the patient id; the phone number comes from the care link.
-  const patient = partner?.id === params.patientId ? partner : null;
+  // The push only carries the patient id. Look up their number among all of this
+  // caretaker's patients (`partner` is just the first one).
+  const [patient, setPatient] = useState<User | null>(
+    partner?.id === params.patientId ? partner : null,
+  );
+  useEffect(() => {
+    api<{ patients: User[] }>("GET", "/me/patients")
+      .then(({ patients }) => {
+        const match = patients.find((p) => p.id === params.patientId);
+        if (match) setPatient(match);
+      })
+      .catch((e) => console.warn("Couldn't load the patient's phone number:", e));
+  }, [api, params.patientId]);
+
   const name = params.patientName || patient?.name || "Your patient";
-  const phone = patient?.phone_number?.replace(/[^\d+]/g, "");
+  const call = telUrl(patient?.phone_number);
   const detected = new Date(params.detectedAt);
   const when = Number.isFinite(detected.getTime())
     ? detected.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
@@ -37,12 +52,12 @@ export default function CaretakerAlertScreen() {
       </View>
 
       <View style={styles.actions}>
-        {phone ? (
+        {call ? (
           <Button
             title={`Call ${name}`}
             icon={Phone}
             variant="accent"
-            onPress={() => Linking.openURL(`tel:${phone}`)}
+            onPress={() => Linking.openURL(call)}
           />
         ) : (
           <Text style={styles.description}>

@@ -69,7 +69,7 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "fall_alerts"
+          "defaultChannel": "fall-alerts"
         }
       ]
     ],

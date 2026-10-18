@@ -36,7 +36,8 @@ describe("sendEmergencyNotification", () => {
     expect(body.to).toBe("ExponentPushToken[abc]");
     expect(body.priority).toBe("high");
     // Must match FALL_CHANNEL_ID in frontend/src/lib/notifications.ts
-    expect(body.channelId).toBe("fall_alerts");
+    expect(body.channelId).toBe("fall-alerts");
+    expect(body.ttl).toBe(300);
     // A custom sound file that isn't bundled in the app plays nothing on some devices
     expect(body.sound).toBe("default");
     // Must match FallPushData in frontend/src/lib/notifications.ts

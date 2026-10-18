@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import * as Crypto from "expo-crypto";
 import * as Speech from "expo-speech";
 import {
   ExpoSpeechRecognitionModule,
@@ -10,6 +11,7 @@ import {
 
 import { useProfile } from "../context/ProfileContext";
 import { ApiError, useApi } from "../lib/api";
+import { telUrl } from "../lib/phone";
 
 type AlertStatus =
   | "preparing"
@@ -27,10 +29,22 @@ type Delivery =
   | { state: "sent" }
   | { state: "not_sent"; message: string };
 
-type EscalateResponse = { incidentId: string; alertStatus: "sent" | "failed"; detail?: string };
+type EscalateResponse = {
+  incidentId: string;
+  alertStatus: "pending" | "sent" | "acknowledged" | "failed";
+  detail?: string;
+};
 
-// Waits between attempts when the server can't be reached or errors (not for 4xx answers)
-const RETRY_DELAYS_MS = [2000, 5000, 10000];
+// Spec: retry every 5 s for 60 s. Safe to repeat: every attempt sends the same clientAlertId.
+const RETRY_EVERY_MS = 5000;
+const RETRY_FOR_MS = 60_000;
+
+/** A message for the patient when the server refuses the alert (4xx). */
+function refusedMessage(e: ApiError) {
+  if (e.status === 409) return "You don't have a caregiver linked in SafeStep yet.";
+  if (e.status === 401) return "You're signed out of SafeStep, so your caregiver wasn't notified.";
+  return "SafeStep couldn't send the alert to your caregiver.";
+}
 
 function classifyResponse(text: string): "safe" | "help" | null {
   const normalized = text.toLowerCase().replace(/[^\w\s']/g, " ");
@@ -63,10 +77,12 @@ export default function FallAlertScreen() {
   const [delivery, setDelivery] = useState<Delivery>({ state: "sending" });
   const api = useApi();
   const { partner } = useProfile();
-  const caretakerPhone = partner?.phone_number?.replace(/[^\d+]/g, "");
+  const callCaretaker = telUrl(partner?.phone_number);
 
   // When the fall was detected, not when the check finished
   const detectedAt = useRef(new Date().toISOString());
+  // One id per fall, so the server can tell a retry from a new fall
+  const clientAlertId = useRef(Crypto.randomUUID());
 
   const completed = useRef(false);
   const deadline = useRef<number | null>(null);
@@ -87,34 +103,45 @@ export default function FallAlertScreen() {
     }
   }, []);
 
+  // Keeps going if the patient leaves this screen: the alert must still go out.
   const escalate = useCallback(
     async (reason: Exclude<Outcome, "safe">) => {
-      for (let attempt = 0; ; attempt++) {
+      const giveUpAt = Date.now() + RETRY_FOR_MS;
+      for (;;) {
         try {
           const res = await api<EscalateResponse>("POST", "/falls/escalate", {
+            clientAlertId: clientAlertId.current,
             reason,
             detectedAt: detectedAt.current,
           });
-          setDelivery(
-            res.alertStatus === "sent"
-              ? { state: "sent" }
-              : { state: "not_sent", message: res.detail ?? "Your caregiver could not be notified." },
-          );
-          return;
-        } catch (e) {
-          // 4xx: retrying won't help (e.g. 409 no caregiver linked)
-          const final =
-            (e instanceof ApiError && e.status >= 400 && e.status < 500) ||
-            attempt >= RETRY_DELAYS_MS.length;
-          if (final) {
-            setDelivery({
-              state: "not_sent",
-              message: e instanceof Error ? e.message : "Your caregiver could not be notified.",
-            });
+          if (res.alertStatus === "sent" || res.alertStatus === "acknowledged") {
+            setDelivery({ state: "sent" });
             return;
           }
-          await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+          if (res.alertStatus === "failed") {
+            // Shown while we keep trying (the caregiver may turn alerts on, Expo may recover)
+            setDelivery({
+              state: "not_sent",
+              message: res.detail ?? "Your caregiver could not be notified.",
+            });
+          }
+          // "pending": another attempt is sending it; ask again shortly
+        } catch (e) {
+          if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+            setDelivery({ state: "not_sent", message: refusedMessage(e) });
+            return; // retrying won't change the answer
+          }
+          // Offline or a server error: keep trying
         }
+        if (Date.now() >= giveUpAt) {
+          setDelivery((d) =>
+            d.state === "not_sent"
+              ? d
+              : { state: "not_sent", message: "Can't reach SafeStep, so your caregiver wasn't notified." },
+          );
+          return;
+        }
+        await new Promise((r) => setTimeout(r, RETRY_EVERY_MS));
       }
     },
     [api],
@@ -297,11 +324,11 @@ export default function FallAlertScreen() {
             </>
           )}
 
-          {caretakerPhone ? (
+          {callCaretaker ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Call ${partner?.name ?? "your caregiver"}`}
-              onPress={() => Linking.openURL(`tel:${caretakerPhone}`)}
+              onPress={() => Linking.openURL(callCaretaker)}
               style={({ pressed }) => [styles.callButton, pressed && { opacity: 0.8 }]}
             >
               <Text style={styles.callText}>Call {partner?.name ?? "caregiver"}</Text>

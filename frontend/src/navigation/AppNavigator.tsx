@@ -26,7 +26,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { useApi } from "../lib/api";
-import { getPushToken, isFallPush, type FallPushData } from "../lib/notifications";
+import { isFallPush, registerForFallAlerts, type FallPushData } from "../lib/notifications";
 
 import type { RootStackParamList, TabParamList } from "../types/navigation";
 
@@ -95,27 +95,11 @@ function CaretakerPush() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const api = useApi();
 
+  // Every launch, so a changed token (reinstall, restore) reaches the server
   React.useEffect(() => {
-    let cancelled = false;
-    const register = (token: string) =>
-      api("POST", "/notifications/register", { token, platform: Platform.OS }).catch((e) =>
-        console.warn("Couldn't register for fall alerts:", e),
-      );
-
-    getPushToken().then((result) => {
-      if (cancelled) return;
-      if (result.ok) register(result.token);
-      else console.warn("Fall alerts are off on this phone:", result.reason);
+    registerForFallAlerts(api).then((result) => {
+      if (!result.ok) console.warn("Fall alerts are off on this phone:", result.reason);
     });
-
-    // The token can change (reinstall, restore); keep the server's copy current.
-    const tokenSub = Notifications.addPushTokenListener(() => {
-      getPushToken().then((r) => r.ok && register(r.token));
-    });
-    return () => {
-      cancelled = true;
-      tokenSub.remove();
-    };
   }, [api]);
 
   React.useEffect(() => {
@@ -133,9 +117,13 @@ function CaretakerPush() {
       open(data);
     };
 
-    // Tapped while the app was closed: the tap that launched us
+    // Tapped while the app was closed: the tap that launched us. Clear it so it
+    // doesn't reopen an old alert the next time this mounts.
     const last = Notifications.getLastNotificationResponse();
-    if (last) openOnce(last.notification.request.content.data);
+    if (last) {
+      Notifications.clearLastNotificationResponse();
+      openOnce(last.notification.request.content.data);
+    }
 
     const received = Notifications.addNotificationReceivedListener((n) =>
       openOnce(n.request.content.data),

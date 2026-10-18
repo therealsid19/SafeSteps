@@ -27,7 +27,9 @@ export async function sendEmergencyNotification({
         body: `${patientName} may have fallen at ${detectedAt.toISOString()} (UTC). Please check on them immediately.`,
         sound: "default",
         // Android: the high-importance channel the app creates (frontend/src/lib/notifications.ts)
-        channelId: "fall_alerts",
+        channelId: "fall-alerts",
+        // Spec: an alert older than 5 minutes is stale; the caretaker will have been told otherwise
+        ttl: 300,
         priority: "high",
         interruptionLevel: "time-sensitive",
         categoryId: "FALL_EMERGENCY",

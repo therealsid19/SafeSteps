@@ -3,7 +3,7 @@ import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 
 /** Android channel for fall alerts. The backend sends pushes with this channelId. */
-export const FALL_CHANNEL_ID = "fall_alerts";
+export const FALL_CHANNEL_ID = "fall-alerts";
 
 /** `data` the backend attaches to a fall push (backend/auth/src/services/pushNotifications.ts). */
 export type FallPushData = {
@@ -23,14 +23,47 @@ export function isFallPush(data: unknown): data is FallPushData {
 }
 
 // Without a handler, pushes that arrive while the app is open are not shown at all.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
+
+/** The token this phone registered with the server, so sign-out can remove it. */
+let registeredToken: string | null = null;
+
+type Api = <T = unknown>(method: string, path: string, body?: unknown) => Promise<T>;
+
+/** Caretakers: ask for permission and send this phone's push token to the server. */
+export async function registerForFallAlerts(api: Api): Promise<PushRegistration> {
+  const result = await getPushToken();
+  if (!result.ok) return result;
+  try {
+    await api("POST", "/notifications/register", { token: result.token, platform: Platform.OS });
+    registeredToken = result.token;
+    return result;
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Before sign-out: stop this phone getting the signed-out caretaker's fall alerts. */
+export async function unregisterFromFallAlerts(api: Api) {
+  if (!registeredToken) return;
+  try {
+    await api("DELETE", "/notifications/register", { token: registeredToken });
+    registeredToken = null;
+  } catch (e) {
+    // Signing out must still work offline. If another caretaker signs in here, registering
+    // moves the token to them.
+    console.warn("Couldn't unregister fall alerts:", e);
+  }
+}
 
 async function ensureFallChannel() {
   if (Platform.OS !== "android") return;
