@@ -74,6 +74,13 @@
         {
           "defaultChannel": "fall-alerts"
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
       ]
     ],
     "scheme": "safestep",

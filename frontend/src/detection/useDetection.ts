@@ -3,12 +3,12 @@
 // 320x320 input, so there are no photos, JPEGs or pixel loops in JavaScript anymore.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeviceMotion } from "expo-sensors";
-import * as Speech from "expo-speech";
 import { CommonResolutions, useDepthOutput, useFrameOutput, type CameraOrientation, type Depth } from "react-native-vision-camera";
 import { useResizer, type GPUFrame } from "react-native-vision-camera-resizer";
 import { scheduleOnRN } from "react-native-worklets";
 
 import * as config from "./config";
+import { prepareTTS, speak, stopSpeaking } from "../lib/tts";
 import { estimateDepth, fitTo, loadModels, look } from "./detector";
 import { Announcer } from "./rules";
 import { cameraHeight, crop, median, type Box, type Grid, type Info } from "./vision";
@@ -116,6 +116,7 @@ export function useDetection({
   const busy = useRef(false); // true while the AI is working on a frame -> newer frames are skipped
   const ready = useRef(false); // models loaded
   const speaking = useRef(false);
+  const speechId = useRef(0); // which sentence is current, so an interrupted one can't clear `speaking`
   const announcer = useRef(new Announcer());
   const lastFind = useRef({ text: "", time: 0 });
   const prev = useRef(0);
@@ -152,6 +153,7 @@ export function useDetection({
     config.cam.height = config.CAM_HEIGHT; // re-measured from the floor once LiDAR frames arrive
     config.cam.focal = 0;
     ready.current = false;
+    prepareTTS(); // silent-switch playback, set up before the first warning
     loadModels()
       .then(() => {
         if (!alive) return;
@@ -167,17 +169,16 @@ export function useDetection({
     return () => {
       alive = false;
       ready.current = false;
-      Speech.stop();
+      stopSpeaking();
     };
   }, [enabled]);
 
   const say = useCallback((text: string, interrupt: boolean) => {
-    if (interrupt) Speech.stop();
+    const id = ++speechId.current;
     speaking.current = true;
-    const done = () => {
-      speaking.current = false;
-    };
-    Speech.speak(text, { rate: config.SPEECH_RATE, onDone: done, onStopped: done, onError: done });
+    speak(text, { interrupt, rate: config.SPEECH_RATE }).then(() => {
+      if (speechId.current === id) speaking.current = false;
+    });
     setSaid({ text, key: `${modeRef.current}|${targetRef.current}` });
   }, []);
 
