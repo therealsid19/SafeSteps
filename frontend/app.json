@@ -56,7 +56,16 @@
           "locationWhenInUsePermission": "Allow SafeStep to share your location with your caregivers."
         }
       ],
-      "./plugins/withSceneLifecycle"
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SafeStep to use your camera to warn you about obstacles and find objects.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "./plugins/withSceneLifecycle",
+      "onnxruntime-react-native"
     ],
     "scheme": "safestep"
   }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,13 +7,16 @@ import {
   TextInput,
   ActivityIndicator,
   Keyboard,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { Camera, Search, X, ScanSearch } from "lucide-react-native";
+import { Camera, Search, X, ScanSearch, Footprints } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 
 import { Button } from "../components/Form";
+import { DetectionOverlay } from "../components/DetectionOverlay";
+import { FINDABLE, useDetection, type DetectionMode } from "../detection/useDetection";
 import { RADIUS, SPACING, TYPE } from "../constants/theme";
 import { makeStyles, useTheme } from "../context/ThemeContext";
 
@@ -23,9 +26,22 @@ export default function CameraScreen() {
   const navigation = useNavigation();
 
   const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
+  const [cameraReady, setCameraReady] = useState(false);
 
+  const [mode, setMode] = useState<DetectionMode>("guide");
   const [targetObject, setTargetObject] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+
+  const target = targetObject.trim().toLowerCase();
+  const findable = FINDABLE.includes(target);
+  const detecting =
+    !!permission?.granted && cameraReady && (mode === "guide" || (isSearching && findable));
+  const { status, error, info, message } = useDetection(cameraRef, {
+    enabled: detecting,
+    mode,
+    target,
+  });
 
   // Camera permissions are still loading
   if (!permission) {
@@ -47,7 +63,7 @@ export default function CameraScreen() {
           Camera access needed
         </Text>
         <Text style={styles.permissionDescription}>
-          SafeStep uses your camera to help locate everyday objects.
+          SafeStep uses your camera to warn you about obstacles and help locate everyday objects.
         </Text>
         <View style={styles.permissionActions}>
           <Button title="Allow camera access" onPress={requestPermission} />
@@ -58,16 +74,48 @@ export default function CameraScreen() {
   }
 
   const handleSearch = () => {
-    if (!targetObject.trim()) return;
+    if (!target) return;
 
     Keyboard.dismiss();
     setIsSearching(true);
   };
 
+  const pickTarget = (name: string) => {
+    setTargetObject(name);
+    setIsSearching(false);
+  };
+
+  let statusText: string;
+  if (status === "error") {
+    statusText = error ?? "Object detection stopped working.";
+  } else if (status === "loading") {
+    statusText = "Starting object detection…";
+  } else if (mode === "guide") {
+    statusText = message ?? "Hold your phone upright at chest height. Path looks clear.";
+  } else if (!target) {
+    statusText = "Enter or pick an object to begin.";
+  } else if (!findable) {
+    statusText = `SafeStep can't recognize "${targetObject.trim()}" yet. Pick one of the objects above.`;
+  } else if (!isSearching) {
+    statusText = `Ready to search for ${target}.`;
+  } else {
+    statusText = message ?? `Looking for ${target}. Slowly sweep your phone around.`;
+  }
+
   return (
     <View style={styles.container}>
       {/* Live camera preview */}
-      <CameraView style={StyleSheet.absoluteFill} facing="back" />
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        facing="back"
+        animateShutter={false}
+        onCameraReady={() => setCameraReady(true)}
+      />
+
+      {detecting && info ? (
+        <DetectionOverlay info={info} highlight={mode === "find" ? target : undefined} />
+      ) : null}
 
       <SafeAreaView edges={["top"]} style={styles.topOverlay}>
         <Pressable
@@ -79,49 +127,101 @@ export default function CameraScreen() {
           <X size={26} color={colors.text} />
         </Pressable>
         <Text style={styles.headerTitle} accessibilityRole="header">
-          Find an object
+          {mode === "guide" ? "Walking guide" : "Find an object"}
         </Text>
       </SafeAreaView>
 
       {/* Camera guide */}
       <View style={styles.scanArea} pointerEvents="none">
-        <View style={styles.scanFrame}>
-          <ScanSearch size={58} color="rgba(255,255,255,0.75)" />
-        </View>
+        {!detecting && mode === "find" ? (
+          <View style={styles.scanFrame}>
+            <ScanSearch size={58} color="rgba(255,255,255,0.75)" />
+          </View>
+        ) : null}
       </View>
 
       {/* Bottom controls */}
       <View style={styles.bottomPanel}>
-        <Text style={styles.panelTitle}>What are you looking for?</Text>
-
-        <View style={styles.inputContainer}>
-          <Search size={22} color={colors.muted} />
-          <TextInput
-            style={styles.input}
-            value={targetObject}
-            onChangeText={(text) => {
-              setTargetObject(text);
-              setIsSearching(false);
-            }}
-            placeholder="e.g. keys, water bottle"
-            placeholderTextColor={colors.muted}
-            accessibilityLabel="Object to find"
-            returnKeyType="search"
-            onSubmitEditing={handleSearch}
-          />
+        <View style={styles.modeSwitch} accessibilityRole="tablist">
+          {(
+            [
+              { key: "guide", label: "Guide", icon: Footprints },
+              { key: "find", label: "Find", icon: Search },
+            ] as const
+          ).map(({ key, label, icon: Icon }) => {
+            const selected = mode === key;
+            const fg = selected ? colors.onPrimary : colors.text;
+            return (
+              <Pressable
+                key={key}
+                onPress={() => setMode(key)}
+                accessibilityRole="tab"
+                accessibilityLabel={label}
+                accessibilityState={{ selected }}
+                style={[styles.modeButton, selected && styles.modeButtonSelected]}
+              >
+                <Icon size={20} color={fg} />
+                <Text style={[styles.modeLabel, { color: fg }]}>{label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        <Button
-          title={isSearching ? "Search requested" : "Start searching"}
-          icon={Search}
-          disabled={!targetObject.trim()}
-          onPress={handleSearch}
-        />
+        {mode === "find" ? (
+          <>
+            <Text style={styles.panelTitle}>What are you looking for?</Text>
+
+            <View style={styles.inputContainer}>
+              <Search size={22} color={colors.muted} />
+              <TextInput
+                style={styles.input}
+                value={targetObject}
+                onChangeText={(text) => {
+                  setTargetObject(text);
+                  setIsSearching(false);
+                }}
+                placeholder="e.g. chair, door"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Object to find"
+                autoCapitalize="none"
+                returnKeyType="search"
+                onSubmitEditing={handleSearch}
+              />
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chips}
+              keyboardShouldPersistTaps="handled"
+            >
+              {FINDABLE.map((name) => (
+                <Pressable
+                  key={name}
+                  onPress={() => pickTarget(name)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Find ${name}`}
+                  accessibilityState={{ selected: name === target }}
+                  style={[styles.chip, name === target && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, name === target && styles.chipTextSelected]}>
+                    {name}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <Button
+              title={isSearching ? "Stop searching" : "Start searching"}
+              icon={isSearching ? X : Search}
+              disabled={!findable}
+              onPress={isSearching ? () => setIsSearching(false) : handleSearch}
+            />
+          </>
+        ) : null}
 
         <Text style={styles.statusText} accessibilityLiveRegion="polite">
-          {isSearching
-            ? `Ready to search for "${targetObject.trim()}". Object detection is not connected yet.`
-            : "Enter an object name to begin."}
+          {statusText}
         </Text>
       </View>
     </View>
@@ -197,6 +297,24 @@ const useStyles = makeStyles((c) =>
       borderTopLeftRadius: RADIUS.xl,
       borderTopRightRadius: RADIUS.xl,
     },
+    modeSwitch: {
+      flexDirection: "row",
+      backgroundColor: c.surface,
+      borderRadius: RADIUS.pill,
+      padding: SPACING.xs,
+      marginBottom: SPACING.md,
+    },
+    modeButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: RADIUS.pill,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: SPACING.sm,
+    },
+    modeButtonSelected: { backgroundColor: c.primary },
+    modeLabel: { ...TYPE.titleM },
     panelTitle: { ...TYPE.headingM, color: c.text, marginBottom: SPACING.md },
     inputContainer: {
       flexDirection: "row",
@@ -214,6 +332,17 @@ const useStyles = makeStyles((c) =>
       paddingVertical: 12,
       outlineStyle: "none",
     } as any,
+    chips: { gap: SPACING.sm, paddingVertical: SPACING.md },
+    chip: {
+      minHeight: 40,
+      justifyContent: "center",
+      paddingHorizontal: SPACING.md,
+      borderRadius: RADIUS.pill,
+      backgroundColor: c.surfaceAlt,
+    },
+    chipSelected: { backgroundColor: c.accent },
+    chipText: { ...TYPE.bodyM, color: c.text },
+    chipTextSelected: { color: c.onAccent },
     statusText: {
       ...TYPE.bodyM,
       color: c.muted,
