@@ -4,11 +4,8 @@ import { and, eq } from "drizzle-orm";
 
 import { auth } from "../auth";
 import { db } from "../db";
-import {
-  careLinks,
-  patientLocation,
-  user,
-} from "../db/schema";
+import { findPatientLocation } from "../db/care-links";
+import { patientLocation, user } from "../db/schema";
 
 type UserRow = typeof user.$inferSelect;
 type Env = { Variables: { user: UserRow } };
@@ -161,7 +158,8 @@ export const location = new Hono<Env>()
     });
   })
 
-  // Get the paired patient's latest location
+  // Get a linked patient's latest location: ?patient_id=, or the earliest-linked
+  // patient when it's left out. An unlinked patient_id looks the same as no link.
   .get("/partner", async (c) => {
     const currentUser = c.get("user");
 
@@ -169,21 +167,11 @@ export const location = new Hono<Env>()
       return c.json({ detail: "Caretakers only" }, 403);
     }
 
-    const [result] = await db
-      .select({
-        latitude: patientLocation.latitude,
-        longitude: patientLocation.longitude,
-        accuracy: patientLocation.accuracyM,
-        recordedAt: patientLocation.recordedAt,
-        sharingEnabled: patientLocation.sharingEnabled,
-      })
-      .from(careLinks)
-      .innerJoin(
-        patientLocation,
-        eq(careLinks.patientId, patientLocation.userId)
-      )
-      .where(eq(careLinks.caretakerId, currentUser.id))
-      .limit(1);
+    const result = await findPatientLocation(
+      db,
+      currentUser.id,
+      c.req.query("patient_id")?.trim() || undefined
+    );
 
     if (!result || !result.sharingEnabled) {
       return c.json({

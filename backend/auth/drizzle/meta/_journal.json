@@ -8,6 +8,13 @@
       "when": 1792243981488,
       "tag": "0000_outstanding_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792310525357,
+      "tag": "0001_spotty_living_lightning",
+      "breakpoints": true
     }
   ]
 }

@@ -73,10 +73,12 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   );
 
   const unlinkPartner = useCallback(async () => {
-    await api("DELETE", "/me/link");
-    setPartner(null);
-  }, [api]);
-  
+    // A caretaker can have several patients, so say which one to unlink.
+    const query =
+      profile?.role === "caretaker" && partner ? `?patient_id=${encodeURIComponent(partner.id)}` : "";
+    await api("DELETE", `/me/link${query}`);
+    await loadPartner(); // a caretaker may still have other patients
+  }, [api, profile, partner, loadPartner]);
 
   return (
     <ProfileContext.Provider
