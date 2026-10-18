@@ -2,6 +2,7 @@
 type EmergencyNotification = {
   token: string;
   incidentId: string;
+  patientId: string;
   patientName: string;
   detectedAt: Date;
 };
@@ -9,6 +10,7 @@ type EmergencyNotification = {
 export async function sendEmergencyNotification({
   token,
   incidentId,
+  patientId,
   patientName,
   detectedAt,
 }: EmergencyNotification): Promise<void> {
@@ -23,13 +25,17 @@ export async function sendEmergencyNotification({
         to: token,
         title: "🚨 SafeStep Emergency",
         body: `${patientName} may have fallen at ${detectedAt.toISOString()} (UTC). Please check on them immediately.`,
-        sound: "emergency-alert.wav",
+        sound: "default",
+        // Android: the high-importance channel the app creates (frontend/src/lib/notifications.ts)
+        channelId: "fall_alerts",
         priority: "high",
         interruptionLevel: "time-sensitive",
         categoryId: "FALL_EMERGENCY",
         data: {
           type: "fall_emergency",
           incidentId,
+          patientId,
+          patientName,
           detectedAt: detectedAt.toISOString(),
         },
       }),

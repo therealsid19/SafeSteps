@@ -16,4 +16,5 @@ export type RootStackParamList = {
   Awareness: undefined;
   Help: undefined;
   FallAlert: undefined;
+  CaretakerAlert: { incidentId: string; patientId: string; patientName?: string; detectedAt: string };
 };

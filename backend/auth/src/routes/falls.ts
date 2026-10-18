@@ -110,6 +110,7 @@ falls.post("/escalate", async (c) => {
     await sendEmergencyNotification({
       token: device.token,
       incidentId: incident.id,
+      patientId,
       patientName: patient.name,
       detectedAt,
     });

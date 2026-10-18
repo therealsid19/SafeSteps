@@ -65,7 +65,13 @@
         }
       ],
       "./plugins/withSceneLifecycle",
-      "onnxruntime-react-native"
+      "onnxruntime-react-native",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "fall_alerts"
+        }
+      ]
     ],
     "scheme": "safestep"
   }
