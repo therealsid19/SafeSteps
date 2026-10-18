@@ -1,6 +1,7 @@
 // Tuning numbers, from the detect repo's src/config.ts, adjusted for a phone held upright.
 // The models in assets/models/ were exported by detect's scripts/export_models.py with
 // IMG_SIZE and CLASSES below. Change them there, re-export, then run `bun run copy-models`.
+// yolo26n.onnx: export with detect's script too (or: YOLO("yolo26n.pt").export(format="onnx", imgsz=320)).
 
 export const IMG_SIZE = 320;
 
@@ -8,11 +9,37 @@ export const SCALE = 0.53; // AI depth model only (LiDAR measures real metres). 
 export const BOX_W = 0.5;
 export const BOX_H = 0.5;
 
+// --- Object detector ---
+// false = yolo26n (normal detector, 80 everyday things): lighter, faster, confident on chairs/people.
+// true  = YOLOE with our own word list (can do stairs/door/pole), but heavier and less confident.
+// TODO(stairs): switch back to YOLOE once the basics work well, or fine-tune yolo26n on stairs.
+export const USE_YOLOE = false;
+
 // Words YOLOE looks for. Baked into models/yoloe.onnx; must match detect's CLASSES exactly.
-export const CLASSES = ["person", "bicycle", "car", "chair", "bench", "table", "dog",
+export const YOLOE_CLASSES = ["person", "bicycle", "car", "chair", "bench", "table", "dog",
   "stairs", "door", "pole", "trash can", "potted plant", "suitcase"];
 
-export const IMPORTANT = new Set(CLASSES);
+// yolo26n's fixed list, in its exact order (the model outputs a number; this turns it into a name).
+export const COCO_NAMES = [
+  "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+  "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+  "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+  "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+  "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+  "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+  "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard",
+  "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
+  "scissors", "teddy bear", "hair drier", "toothbrush",
+];
+// the yolo26n names worth saying out loud while walking (everything else is just "object")
+const COCO_IMPORTANT = ["person", "bicycle", "car", "motorcycle", "bus", "truck", "chair", "bench",
+  "couch", "dining table", "dog", "fire hydrant", "stop sign", "potted plant", "suitcase", "backpack", "bed", "tv"];
+
+/** Class number -> name, for whichever detector is in use. */
+export const CLASSES = USE_YOLOE ? YOLOE_CLASSES : COCO_NAMES;
+/** Names we announce, and the list shown in Find mode. */
+export const FINDABLE = USE_YOLOE ? YOLOE_CLASSES : COCO_IMPORTANT;
+export const IMPORTANT = new Set(FINDABLE);
 
 export const MIN_CONF = 0.5;
 

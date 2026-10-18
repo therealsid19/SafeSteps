@@ -9,7 +9,7 @@ import { useResizer, type GPUFrame } from "react-native-vision-camera-resizer";
 import { scheduleOnRN } from "react-native-worklets";
 
 import * as config from "./config";
-import { loadModels, look } from "./detector";
+import { estimateDepth, fitTo, loadModels, look } from "./detector";
 import { Announcer } from "./rules";
 import { crop, median, type Box, type Grid, type Info } from "./vision";
 
@@ -17,7 +17,7 @@ export type DetectionMode = "guide" | "find";
 export type DetectionStatus = "idle" | "loading" | "running" | "error";
 
 /** Words the detector knows, for the Find mode. */
-export const FINDABLE = config.CLASSES;
+export const FINDABLE = config.FINDABLE;
 
 /** Send at most one frame to the AI every this many ms (the AI can't keep up with 30 fps anyway). */
 const FRAME_INTERVAL_MS = 100;
@@ -39,6 +39,23 @@ function describeTarget(info: Info, target: string): { where: string; dist: numb
 }
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Pearson correlation of log-distances: how well two depth pictures agree on near vs far (1 = perfectly). */
+function depthAgreement(a: Grid, b: Grid): number {
+  let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let i = 0; i < a.data.length; i++) {
+    const va = a.data[i]!, vb = b.data[i]!;
+    if (!(va > 0 && va < config.LIDAR_NO_READING && vb > 0)) continue; // skip "no reading" pixels
+    const x = Math.log(va), y = Math.log(vb);
+    n++; sa += x; sb += y; saa += x * x; sbb += y * y; sab += x * y;
+  }
+  if (n < 100) return 0;
+  const cov = sab / n - (sa / n) * (sb / n);
+  const va = saa / n - (sa / n) ** 2, vb = sbb / n - (sb / n) ** 2;
+  return va > 0 && vb > 0 ? cov / Math.sqrt(va * vb) : 0;
+}
+
+const TURNS: CameraOrientation[] = ["up", "right", "down", "left"];
 
 /** LiDAR depth arrives in the sensor's own orientation. Turn it upright (portrait) and replace
  *  "no reading" pixels (0 / NaN: too far, or no laser return) with a far distance. */
@@ -103,7 +120,10 @@ export function useDetection({
   const lastFind = useRef({ text: "", time: 0 });
   const prev = useRef(0);
   const dropStreak = useRef(0); // how many frames in a row have seen a drop-off
-  const latestLidar = useRef<{ grid: Grid; time: number } | null>(null); // newest LiDAR depth frame
+  // newest LiDAR depth frame, still in the sensor's orientation (turned upright when used)
+  const latestLidar = useRef<{ raw: Float32Array; w: number; h: number; stride: number; reported: CameraOrientation; time: number } | null>(null);
+  // which way the LiDAR picture must be turned. Found automatically on the first frames (see checkLidarTurn)
+  const lidarTurn = useRef<CameraOrientation | null>(null);
   const lidarRef = useRef(lidar);
   useEffect(() => {
     lidarRef.current = lidar;
@@ -156,16 +176,41 @@ export function useDetection({
     setSaid({ text, key: `${modeRef.current}|${targetRef.current}` });
   }, []);
 
+  /** Which way is the LiDAR picture turned? Try all 4 rotations and keep the one that best matches the
+   *  AI depth model's view of the same scene. Runs on the first frames only, until it's sure. */
+  const checkLidarTurn = useCallback(
+    async (l: { raw: Float32Array; w: number; h: number; stride: number; reported: CameraOrientation },
+      pixels: Uint8Array, frameW: number, frameH: number) => {
+      const ai = await estimateDepth(pixels, frameW, frameH);
+      const scores = TURNS.map((turn) => ({
+        turn,
+        score: depthAgreement(fitTo(uprightDepth(l.raw, l.w, l.h, l.stride, turn), ai.w, ai.h), ai),
+      })).sort((a, b) => b.score - a.score);
+      const [best, second] = scores;
+      console.log(`LiDAR turn check: ${scores.map((x) => `${x.turn} ${x.score.toFixed(2)}`).join(" | ")}` +
+        ` (sensor reported "${l.reported}")`);
+      if (best!.score > 0.5 && best!.score - second!.score > 0.1) {
+        lidarTurn.current = best!.turn; // sure enough: use LiDAR from now on
+        console.log(`LiDAR turn: using "${best!.turn}"`);
+      }
+    },
+    [],
+  );
+
   /** Runs on the normal JS thread for each frame the worklet sends over. */
   const onPixels = useCallback(
     async (pixels: Uint8Array, frameW: number, frameH: number) => {
       if (!enabledRef.current || !ready.current || busy.current) return; // AI still busy: skip this frame
       busy.current = true;
       try {
-        // use LiDAR depth if we have a fresh frame; otherwise the AI depth model runs instead
+        // use LiDAR depth if we have a fresh frame (and know which way it's turned); else the AI depth model
         const l = latestLidar.current;
+        const fresh = lidarRef.current && l && performance.now() - l.time < config.LIDAR_MAX_AGE_MS ? l : null;
+        if (fresh && !lidarTurn.current) await checkLidarTurn(fresh, pixels, frameW, frameH);
         const measured =
-          lidarRef.current && l && performance.now() - l.time < config.LIDAR_MAX_AGE_MS ? l.grid : null;
+          fresh && lidarTurn.current
+            ? uprightDepth(fresh.raw, fresh.w, fresh.h, fresh.stride, lidarTurn.current)
+            : null;
         const seen = await look(pixels, frameW, frameH, measured);
         if (!enabledRef.current) return;
 
@@ -206,14 +251,14 @@ export function useDetection({
         busy.current = false;
       }
     },
-    [say],
+    [say, checkLidarTurn],
   );
 
   /** Runs on the JS thread for each LiDAR depth frame the worklet sends over: keep the newest one. */
   const onLidar = useCallback(
     (raw: Float32Array, w: number, h: number, stride: number, orientation: CameraOrientation) => {
-      if (!latestLidar.current) console.log(`LiDAR depth: ${w}x${h}, orientation "${orientation}"`); // once
-      latestLidar.current = { grid: uprightDepth(raw, w, h, stride, orientation), time: performance.now() };
+      if (!latestLidar.current) console.log(`LiDAR depth: ${w}x${h}, reported orientation "${orientation}"`); // once
+      latestLidar.current = { raw, w, h, stride, reported: orientation, time: performance.now() };
     },
     [],
   );

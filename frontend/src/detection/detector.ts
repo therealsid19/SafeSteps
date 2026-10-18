@@ -38,7 +38,11 @@ let models: Promise<{ depthModel: InferenceSession; detector: InferenceSession }
 export function loadModels() {
   models ??= Promise.all([
     loadModel(require("../../assets/models/depth.onnx"), "depth"),
-    loadModel(require("../../assets/models/yoloe.onnx"), "detector"),
+    // both files must exist in assets/models/ (Metro bundles every require)
+    loadModel(
+      config.USE_YOLOE ? require("../../assets/models/yoloe.onnx") : require("../../assets/models/yolo26n.onnx"),
+      config.USE_YOLOE ? "detector (YOLOE)" : "detector (yolo26n)",
+    ),
   ]).then(([depthModel, detector]) => ({ depthModel, detector }));
   models.catch(() => (models = null)); // allow a retry
   return models;
@@ -102,16 +106,34 @@ function iou(a: Rect, b: Rect) {
   return union > 0 ? inter / union : 0;
 }
 
-/** Detector output (1, 4 + classes + extra, anchors) -> boxes in the same coordinates as the depth grid. */
+let loggedDims = false;
+
+/** Detector -> boxes in the same coordinates as the depth grid. Handles both output formats:
+ *  - end-to-end (1, 300, 6): ready-made boxes [x1, y1, x2, y2, score, class], no NMS needed
+ *  - classic    (1, 4 + classes + extra, anchors): one candidate per anchor, NMS needed */
 async function runDetector(detector: InferenceSession, input: Tensor, c: Content) {
   const result = await detector.run({ [detector.inputNames[0]!]: input });
   const out = result[detector.outputNames[0]!]!;
   const [, rows, n] = out.dims as number[];
   const pred = out.data as Float32Array;
-  const at = (row: number, j: number) => pred[row * n! + j]!;
+  if (!loggedDims) {
+    console.log("detector output dims:", out.dims);
+    loggedDims = true;
+  }
 
-  // best class per anchor, then class-aware NMS
   const found: { box: Rect; cls: number; conf: number }[] = [];
+  if (n === 6) {
+    // end-to-end: each row is already a final box
+    for (let r = 0; r < rows!; r++) {
+      const [x1, y1, x2, y2, conf, cls] = pred.subarray(r * 6, r * 6 + 6);
+      if (conf! <= DET_CONF) continue;
+      found.push({ box: [x1!, y1!, x2!, y2!], cls: Math.round(cls!), conf: conf! });
+    }
+    return toGrid(found, c);
+  }
+
+  const at = (row: number, j: number) => pred[row * n! + j]!;
+  // best class per anchor, then class-aware NMS
   for (let j = 0; j < n!; j++) {
     let cls = 0, conf = -1;
     for (let k = 0; k < NAMES.length && 4 + k < rows!; k++) {
@@ -127,18 +149,21 @@ async function runDetector(detector: InferenceSession, input: Tensor, c: Content
     if (kept.length >= MAX_DET) break;
     if (kept.every((k) => k.cls !== d.cls || iou(k.box, d.box) <= DET_IOU)) kept.push(d);
   }
+  return toGrid(kept, c);
+}
 
-  // model pixels -> depth-grid pixels (just remove the bars; same scale)
+/** Model pixels -> depth-grid pixels (just remove the side bars; same scale). */
+function toGrid(boxes: { box: Rect; cls: number; conf: number }[], c: Content) {
   const clip = (v: number, max: number) => Math.min(Math.max(v, 0), max);
-  for (const d of kept) {
+  for (const d of boxes) {
     const [x1, y1, x2, y2] = d.box;
     d.box = [clip(x1 - c.padX, c.w), clip(y1 - c.padY, c.h), clip(x2 - c.padX, c.w), clip(y2 - c.padY, c.h)];
   }
-  return kept;
+  return boxes;
 }
 
 /** Stretch a depth grid to w x h (bilinear). LiDAR depth and the camera picture cover the same view. */
-function fitTo(g: Grid, w: number, h: number): Grid {
+export function fitTo(g: Grid, w: number, h: number): Grid {
   if (g.w === w && g.h === h) return g;
   const data = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
@@ -153,6 +178,13 @@ function fitTo(g: Grid, w: number, h: number): Grid {
     }
   }
   return { data, w, h };
+}
+
+/** AI depth model only (no detector): used once to check which way the LiDAR picture is turned. */
+export async function estimateDepth(pixels: Uint8Array, frameW: number, frameH: number): Promise<Grid> {
+  const { depthModel } = await loadModels();
+  const c = contentArea(frameW, frameH);
+  return runDepth(depthModel, toTensor(pixels, c), c);
 }
 
 /** Run the AI on one resized camera frame. Returns everything the app needs.
