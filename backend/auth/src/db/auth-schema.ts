@@ -14,6 +14,7 @@ export const user = pgTable("user", {
     .notNull(),
   phoneNumber: text("phone_number"),
   role: text("role"),
+  expoPushToken: text("expo_push_token"),
 });
 
 export const session = pgTable(
