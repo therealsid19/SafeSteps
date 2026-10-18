@@ -109,17 +109,72 @@ export function edgeRows(area: Grid): number {
   return cliffRows / area.h; // share of rows with a cliff
 }
 
+/** Closest distance (10th percentile) in an area. With `heights` (LiDAR), floor pixels and
+ *  "no reading" pixels are left out, so the floor ahead is never mistaken for an obstacle.
+ *  Nothing left -> LIDAR_NO_READING (= clear). */
+function nearest(depth: Grid, heights: Grid | null, x1: number, y1: number, x2: number, y2: number): number {
+  const d = crop(depth, x1, y1, x2, y2).data;
+  if (!heights) return percentile(d, 10);
+  const hs = crop(heights, x1, y1, x2, y2).data;
+  const keep = new Float32Array(d.length);
+  let n = 0;
+  for (let i = 0; i < d.length; i++) {
+    if (hs[i]! >= config.FLOOR_TOL && d[i]! < config.LIDAR_NO_READING) keep[n++] = d[i]!;
+  }
+  if (n === 0 || n / d.length < config.LOW_MIN) return config.LIDAR_NO_READING; // a few stray pixels = noise
+  return percentile(keep.subarray(0, n), 10);
+}
+
 /** One side zone: a name, 'wall', or null if nothing is close */
-export function sideCheck(depth: Grid, boxes: Box[], sx1: number, y1: number, sx2: number, y2: number): string | null {
-  const d = percentile(crop(depth, sx1, y1, sx2, y2).data, 10);
+export function sideCheck(depth: Grid, boxes: Box[], sx1: number, y1: number, sx2: number, y2: number,
+                          heights: Grid | null = null): string | null {
+  const d = nearest(depth, heights, sx1, y1, sx2, y2);
   if (!(d < config.SIDE_RANGE)) return null; // also null for an empty zone (NaN)
   return objectInBox(boxes, depth, sx1, y1, sx2, y2) ?? "wall";
+}
+
+/** Focal length in pixels for a picture h rows tall: the LiDAR's real calibration if we have it, else from vfov. */
+function focal(h: number): number {
+  return config.cam.focal > 0 ? config.cam.focal * h : (h / 2) / Math.tan(((config.cam.vfov / 2) * Math.PI) / 180);
+}
+
+/**
+ * LiDAR only: how high the phone is above the floor, measured from the floor itself (like the Measure app).
+ * Every floor pixel lies the same distance below the camera, so the most common "drop below the camera"
+ * in the bottom of the picture is the camera's height. Null if too little floor is in view.
+ */
+export function cameraHeight(depth: Grid): number | null {
+  const { w, h } = depth;
+  const f = focal(h);
+  const tilt = (config.cam.tilt * Math.PI) / 180;
+  const cos = Math.cos(tilt), sin = Math.sin(tilt);
+  const BIN = 0.05; // 5 cm steps
+  const bins = new Uint32Array(Math.ceil(config.CAM_HEIGHT_MAX / BIN) + 2);
+  let total = 0;
+  for (let y = Math.floor(h * (1 - config.FLOOR_FIT_ROWS)); y < h; y++) {
+    const rel = (y - h / 2) / f;
+    for (let x = 0; x < w; x += 2) { // every 2nd pixel is plenty
+      const d = depth.data[y * w + x]!;
+      if (!(d > 0 && d < config.LOW_RANGE + 1)) continue; // no reading, or too far to measure precisely
+      total++;
+      const drop = d * rel * cos + d * sin; // same math as heightMap
+      if (drop >= config.CAM_HEIGHT_MIN && drop <= config.CAM_HEIGHT_MAX) bins[Math.floor(drop / BIN)]!++;
+    }
+  }
+  let best = 1;
+  for (let i = 1; i < bins.length - 1; i++) if (bins[i]! > bins[best]!) best = i;
+  const votes = bins[best - 1]! + bins[best]! + bins[best + 1]!;
+  if (total < 200 || votes < total * config.FLOOR_FIT_MIN) return null;
+  // centre of the peak (weighted over its neighbours, for better than 5 cm precision)
+  let sum = 0;
+  for (let i = best - 1; i <= best + 1; i++) sum += bins[i]! * (i + 0.5) * BIN;
+  return sum / votes;
 }
 
 /** Height above the floor (metres) for every pixel. */
 export function heightMap(depth: Grid): Grid {
   const { w, h } = depth;
-  const f = (h / 2) / Math.tan(((config.cam.vfov / 2) * Math.PI) / 180); // turns rows below the middle into an angle
+  const f = focal(h); // turns rows below the middle into an angle
   const tilt = (config.cam.tilt * Math.PI) / 180;
   const cos = Math.cos(tilt), sin = Math.sin(tilt);
   const data = new Float32Array(w * h);
@@ -145,20 +200,22 @@ export function findInPath(pathDepth: Grid, mask: Uint8Array, minShare = config.
   return percentile(hits, 10); // closest part of the matching pixels
 }
 
-/** Turn a depth map (metres) + detected boxes into everything the app needs. */
-export function analyze(depth: Grid, boxes: Box[]): Info {
+/** Turn a depth map (metres) + detected boxes into everything the app needs.
+ *  measured = LiDAR depth: heights are trustworthy, so floor pixels can be left out of "what's ahead". */
+export function analyze(depth: Grid, boxes: Box[], measured = false): Info {
   const { w, h } = depth;
   const heights = heightMap(depth);
+  const solid = measured ? heights : null;
 
   const [x1, y1, x2, y2] = caneBox(w, h);
-  let dist = percentile(crop(depth, x1, y1, x2, y2).data, 10);
+  let dist = nearest(depth, solid, x1, y1, x2, y2);
   let label = objectInBox(boxes, depth, x1, y1, x2, y2);
 
   const edges = edgeRows(crop(depth, 0, y1, w, y2));
   if (label === null && edges <= config.EDGE_ROWS) label = "wall";
 
-  let left = sideCheck(depth, boxes, 0, y1, x1, y2);
-  let right = sideCheck(depth, boxes, x2, y1, w, y2);
+  let left = sideCheck(depth, boxes, 0, y1, x1, y2, solid);
+  let right = sideCheck(depth, boxes, x2, y1, w, y2, solid);
 
   if (label === "wall") left = right = null; // facing a wall: the sides are the same wall, not walls beside me
 
@@ -169,7 +226,7 @@ export function analyze(depth: Grid, boxes: Box[]): Info {
 
   // Where the floor SHOULD be in each row (from camera height + tilt). At a drop-off the measured
   // distance jumps far away, so "is it near?" must use this expected floor distance, not the measurement.
-  const f = (h / 2) / Math.tan(((config.cam.vfov / 2) * Math.PI) / 180);
+  const f = focal(h);
   const tilt = (config.cam.tilt * Math.PI) / 180;
   const floorAt = new Float32Array(pathD.data.length); // expected floor distance per pixel (by row)
   for (let r = 0; r < pathD.h; r++) {
@@ -186,7 +243,9 @@ export function analyze(depth: Grid, boxes: Box[]): Info {
     const ph = pathH.data[i]!;
     if (pathD.data[i]! < config.LOW_RANGE) lowMask[i] = ph >= config.FLOOR_TOL && ph < config.LOW_TOP ? 1 : 0;
     const row = Math.floor(i / pathD.w);
-    if (row < dropRows && floorAt[i]! < config.LOW_RANGE) dropMask[i] = ph < -config.FLOOR_TOL ? 1 : 0;
+    // LiDAR "no reading" (dark/shiny floor) is not a hole: never count it as a drop-off
+    const noReading = measured && pathD.data[i]! >= config.LIDAR_NO_READING;
+    if (row < dropRows && floorAt[i]! < config.LOW_RANGE && !noReading) dropMask[i] = ph < -config.FLOOR_TOL ? 1 : 0;
   }
   const low = findInPath(pathD, lowMask);
   // NOT applied here: useDetection confirms it over several frames first.

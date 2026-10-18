@@ -21,16 +21,29 @@ async function loadModel(module: number, label: string) {
   if (!uri) throw new Error("Could not load the detection model.");
   const path = uri.replace(/^file:\/\//, "");
 
-  const fast = Platform.OS === "ios" ? "coreml" : "nnapi";
-  try {
-    const session = await InferenceSession.create(path, { executionProviders: [fast, "cpu"] });
-    console.log(`${label} model: ${fast} (+cpu fallback)`);
-    return session;
-  } catch (e) {
-    console.warn(`${label} model: ${fast} not available, using cpu only`, e);
-    return InferenceSession.create(path);
+  // iOS: CoreML's newer "ML Program" format runs far more of YOLO / the depth model on the Neural Engine
+  // (the old format leaves many layers on the CPU, and hopping between the two is slow)
+  const tries: [string, InferenceSession.ExecutionProviderConfig[]][] = Platform.OS === "ios"
+    ? [
+      ["coreml (ML Program)", [{ name: "coreml", coreMlFlags: COREML_MLPROGRAM | COREML_STATIC_SHAPES }, "cpu"]],
+      ["coreml", ["coreml", "cpu"]],
+    ]
+    : [["nnapi", ["nnapi", "cpu"]]];
+  for (const [name, executionProviders] of tries) {
+    try {
+      const session = await InferenceSession.create(path, { executionProviders });
+      console.log(`${label} model: ${name} (+cpu fallback)`);
+      return session;
+    } catch (e) {
+      console.warn(`${label} model: ${name} not available`, e);
+    }
   }
+  console.warn(`${label} model: using cpu only`);
+  return InferenceSession.create(path);
 }
+
+const COREML_STATIC_SHAPES = 0x008; // our inputs are always IMG_SIZE x IMG_SIZE
+const COREML_MLPROGRAM = 0x010;
 
 let models: Promise<{ depthModel: InferenceSession; detector: InferenceSession }> | null = null;
 
@@ -66,19 +79,22 @@ export function contentArea(frameW: number, frameH: number): Content {
   return { padX: Math.floor((S - w) / 2), padY: Math.floor((S - h) / 2), w, h };
 }
 
+const TO_FLOAT = Float32Array.from({ length: 256 }, (_, v) => v / 255); // byte -> 0..1, no division per pixel
+// One input buffer, reused every frame (frames are handled one at a time). The bars never change,
+// so they're painted gray once and only the picture inside them is rewritten.
+let inputBuf: { data: Float32Array; key: string } | null = null;
+
 /** uint8 planar RGB from the resizer -> float 0..1 tensor. Bars become ultralytics' gray (114). */
 function toTensor(pixels: Uint8Array, c: Content): Tensor {
   const S = config.IMG_SIZE;
   const SS = S * S;
-  const out = new Float32Array(3 * SS);
-  const gray = 114 / 255;
+  const key = `${c.padX},${c.padY},${c.w},${c.h}`;
+  if (inputBuf?.key !== key) inputBuf = { data: new Float32Array(3 * SS).fill(114 / 255), key };
+  const out = inputBuf.data;
   for (let ch = 0; ch < 3; ch++) {
-    for (let y = 0; y < S; y++) {
-      const inside = y >= c.padY && y < c.padY + c.h;
-      for (let x = 0; x < S; x++) {
-        const i = ch * SS + y * S + x;
-        out[i] = inside && x >= c.padX && x < c.padX + c.w ? pixels[i]! / 255 : gray;
-      }
+    for (let y = c.padY; y < c.padY + c.h; y++) {
+      const row = ch * SS + y * S;
+      for (let i = row + c.padX, end = row + c.padX + c.w; i < end; i++) out[i] = TO_FLOAT[pixels[i]!]!;
     }
   }
   return new Tensor("float32", out, [1, 3, S, S]);
@@ -202,7 +218,7 @@ export async function look(pixels: Uint8Array, frameW: number, frameH: number, m
     runDetector(detector, input, c),
   ]);
   const t2 = performance.now();
-  const info = analyze(depth, readBoxes(found, NAMES));
+  const info = analyze(depth, readBoxes(found, NAMES), !!measured);
   const t3 = performance.now();
   // TODO: remove this log once timings look good
   console.log(`depth from ${measured ? "LiDAR" : "AI model"} | prep ${(t1 - t0).toFixed(0)}ms | ` +

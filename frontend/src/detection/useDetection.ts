@@ -11,7 +11,7 @@ import { scheduleOnRN } from "react-native-worklets";
 import * as config from "./config";
 import { estimateDepth, fitTo, loadModels, look } from "./detector";
 import { Announcer } from "./rules";
-import { crop, median, type Box, type Grid, type Info } from "./vision";
+import { cameraHeight, crop, median, type Box, type Grid, type Info } from "./vision";
 
 export type DetectionMode = "guide" | "find";
 export type DetectionStatus = "idle" | "loading" | "running" | "error";
@@ -121,9 +121,11 @@ export function useDetection({
   const prev = useRef(0);
   const dropStreak = useRef(0); // how many frames in a row have seen a drop-off
   // newest LiDAR depth frame, still in the sensor's orientation (turned upright when used)
-  const latestLidar = useRef<{ raw: Float32Array; w: number; h: number; stride: number; reported: CameraOrientation; time: number } | null>(null);
+  // focal = the LiDAR's focal length in its own pixels (0 = no calibration data)
+  const latestLidar = useRef<{ raw: Float32Array; w: number; h: number; stride: number; focal: number; reported: CameraOrientation; time: number } | null>(null);
   // which way the LiDAR picture must be turned. Found automatically on the first frames (see checkLidarTurn)
   const lidarTurn = useRef<CameraOrientation | null>(null);
+  const turnTries = useRef(0);
   const lidarRef = useRef(lidar);
   useEffect(() => {
     lidarRef.current = lidar;
@@ -132,7 +134,7 @@ export function useDetection({
   // phone tilt -> camera tilt for the height math (portrait: beta = 90° when upright)
   useEffect(() => {
     if (!enabled) return;
-    DeviceMotion.setUpdateInterval(200);
+    DeviceMotion.setUpdateInterval(50); // fresh tilt: 200 ms old tilt = wrong heights while walking
     const sub = DeviceMotion.addListener(({ rotation }) => {
       if (rotation) config.cam.tilt = 90 - (rotation.beta * 180) / Math.PI;
     });
@@ -146,6 +148,8 @@ export function useDetection({
     announcer.current = new Announcer();
     lastFind.current = { text: "", time: 0 };
     dropStreak.current = 0;
+    config.cam.height = config.CAM_HEIGHT; // re-measured from the floor once LiDAR frames arrive
+    config.cam.focal = 0;
     ready.current = false;
     loadModels()
       .then(() => {
@@ -172,7 +176,7 @@ export function useDetection({
     const done = () => {
       speaking.current = false;
     };
-    Speech.speak(text, { onDone: done, onStopped: done, onError: done });
+    Speech.speak(text, { rate: config.SPEECH_RATE, onDone: done, onStopped: done, onError: done });
     setSaid({ text, key: `${modeRef.current}|${targetRef.current}` });
   }, []);
 
@@ -192,6 +196,10 @@ export function useDetection({
       if (best!.score > 0.5 && best!.score - second!.score > 0.1) {
         lidarTurn.current = best!.turn; // sure enough: use LiDAR from now on
         console.log(`LiDAR turn: using "${best!.turn}"`);
+      } else if (++turnTries.current >= config.LIDAR_TURN_TRIES) {
+        // never sure (e.g. a blank wall): trust the sensor, instead of running the depth model on every frame forever
+        lidarTurn.current = l.reported;
+        console.log(`LiDAR turn: not sure after ${turnTries.current} tries, using reported "${l.reported}"`);
       }
     },
     [],
@@ -211,6 +219,12 @@ export function useDetection({
           fresh && lidarTurn.current
             ? uprightDepth(fresh.raw, fresh.w, fresh.h, fresh.stride, lidarTurn.current)
             : null;
+        if (measured) {
+          // the phone's real lens, and its real height above the floor (instead of the 1.2 m guess)
+          config.cam.focal = fresh!.focal > 0 ? fresh!.focal / measured.h : 0;
+          const floor = cameraHeight(measured);
+          if (floor !== null) config.cam.height += config.CAM_HEIGHT_SMOOTH * (floor - config.cam.height);
+        }
         const seen = await look(pixels, frameW, frameH, measured);
         if (!enabledRef.current) return;
 
@@ -221,7 +235,7 @@ export function useDetection({
 
         // TODO: remove once calibrated. On a flat empty floor, floorNear/floorMid should be close to 0 m.
         console.log(
-          `tilt ${config.cam.tilt.toFixed(0)}° | ${result.label ?? "object"} ${result.dist.toFixed(2)} m | ` +
+          `tilt ${config.cam.tilt.toFixed(0)}° | phone ${config.cam.height.toFixed(2)} m up | ${result.label ?? "object"} ${result.dist.toFixed(2)} m | ` +
             `floor near ${seen.floorNear.toFixed(2)} mid ${seen.floorMid.toFixed(2)} | drop ${seen.drop?.toFixed(2) ?? "-"} x${dropStreak.current}`,
         );
 
@@ -256,9 +270,11 @@ export function useDetection({
 
   /** Runs on the JS thread for each LiDAR depth frame the worklet sends over: keep the newest one. */
   const onLidar = useCallback(
-    (raw: Float32Array, w: number, h: number, stride: number, orientation: CameraOrientation) => {
-      if (!latestLidar.current) console.log(`LiDAR depth: ${w}x${h}, reported orientation "${orientation}"`); // once
-      latestLidar.current = { raw, w, h, stride, reported: orientation, time: performance.now() };
+    (raw: Float32Array, w: number, h: number, stride: number, focal: number, orientation: CameraOrientation) => {
+      if (!latestLidar.current) {
+        console.log(`LiDAR depth: ${w}x${h}, focal ${focal.toFixed(1)} px, reported orientation "${orientation}"`); // once
+      }
+      latestLidar.current = { raw, w, h, stride, focal, reported: orientation, time: performance.now() };
     },
     [],
   );
@@ -271,7 +287,8 @@ export function useDetection({
       "worklet";
       const g = globalThis as unknown as { __ssLastDepth?: number };
       const now = Date.now();
-      if (now - (g.__ssLastDepth ?? 0) < FRAME_INTERVAL_MS) {
+      // twice as often as camera frames, so the depth used with a frame is at most ~50 ms older than it
+      if (now - (g.__ssLastDepth ?? 0) < FRAME_INTERVAL_MS / 2) {
         depth.dispose();
         return;
       }
@@ -284,7 +301,13 @@ export function useDetection({
         if (depth.pixelFormat !== "depth-32-bit") converted = depth.convert("depth-32-bit");
         const d = converted ?? depth;
         const raw = new Float32Array(d.getDepthData().slice(0)); // copy: the buffer is reused after dispose
-        scheduleOnRN(onLidar, raw, d.width, d.height, d.bytesPerRow / 4, d.orientation);
+        // the lens' real focal length, scaled from the calibration's reference size to this depth map
+        let focal = 0;
+        const cal = depth.cameraCalibrationData;
+        if (cal && cal.intrinsicMatrixReferenceDimensions.width > 0) {
+          focal = cal.cameraIntrinsicMatrix[0]! * (d.width / cal.intrinsicMatrixReferenceDimensions.width);
+        }
+        scheduleOnRN(onLidar, raw, d.width, d.height, d.bytesPerRow / 4, focal, d.orientation);
       } catch {
         // ignore: the camera may be closing
       } finally {

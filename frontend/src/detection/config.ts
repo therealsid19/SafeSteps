@@ -53,12 +53,22 @@ export const EDGE_ROWS = 0.2; // wall if n% or fewer of the rows contain a cliff
 export const SIDE_RANGE = 1.5;
 
 // --- Camera position (for height math) ---
-// tilt is updated live from the phone's motion sensor (see useObstacleDetection).
+// tilt is updated live from the phone's motion sensor; with LiDAR, height and focal are
+// measured live too (see useDetection), like the iPhone's Measure app does.
+export const CAM_HEIGHT = 1.2; // meters from the floor to the phone (chest height): the guess when there's no LiDAR
 export const cam = {
-  height: 1.2, // meters from the floor to the phone (held at chest height)
+  height: CAM_HEIGHT,
   tilt: 0.0, // degrees pointing down (0 = looking straight ahead)
-  vfov: 63.0, // degrees top to bottom; phone main camera held in portrait
+  vfov: 63.0, // degrees top to bottom; phone main camera held in portrait (used when focal is unknown)
+  focal: 0, // focal length / picture height, from the LiDAR's own calibration. 0 = unknown: use vfov
 };
+
+// --- Measuring the phone's height from the floor (LiDAR only) ---
+export const FLOOR_FIT_ROWS = 0.4;    // look for floor in the bottom 40% of the picture
+export const FLOOR_FIT_MIN = 0.25;    // at least 25% of those pixels must agree on one floor level
+export const CAM_HEIGHT_MIN = 0.5;    // meters: ignore floor guesses outside this range
+export const CAM_HEIGHT_MAX = 2.0;
+export const CAM_HEIGHT_SMOOTH = 0.3; // how fast the measured height follows a new reading (0..1)
 export const LOW_RANGE = 3.0; // only care about low obstacles / drop-offs closer than this (meters)
 
 export const FLOOR_TOL = 0.15; // meters: within ±n cm of 0 counts as floor
@@ -76,3 +86,6 @@ export const SIDE_REPEAT = 10.0; // seconds: remind about the same side walls at
 // --- LiDAR (iPhone Pro) ---
 export const LIDAR_MAX_AGE_MS = 300; // use a LiDAR depth frame only if it's at most this old, else fall back to the AI model
 export const LIDAR_NO_READING = 10;  // metres: LiDAR pixels with no reading (too far / no return) count as far away
+export const LIDAR_TURN_TRIES = 10;  // give up the automatic LiDAR orientation check after this many frames
+
+export const SPEECH_RATE = 1.15; // a bit faster than normal: shorter sentences = fresher warnings
